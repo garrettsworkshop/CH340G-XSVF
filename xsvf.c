@@ -49,10 +49,6 @@ enum xsvf_cmd {
 	XTRST           = 0x1c
 };
 
-// This is to not confuse the VIM syntax highlighting
-#define VAL_OPEN (
-#define VAL_CLOSE )
-
 #define READ_BITS(_buf, _len) do {                                          \
 	unsigned char *_p = _buf; int _i;                                   \
 	for (_i=0; _i<(_len); _i+=8) {                                      \
@@ -65,7 +61,7 @@ enum xsvf_cmd {
 	}                                                                   \
 } while (0)
 
-#define READ_LONG() VAL_OPEN{                                               \
+#define READ_LONG2(x) {                                               \
 	long _buf = 0; int _i;                                              \
 	for (_i=0; _i<4; _i++) {                                            \
 		int tmp = LIBXSVF_HOST_GETBYTE();                           \
@@ -75,17 +71,18 @@ enum xsvf_cmd {
 		}                                                           \
 		_buf = _buf << 8 | tmp;                                     \
 	}                                                                   \
-	_buf;                                                               \
-}VAL_CLOSE
+	x = _buf;                                                               \
+}
 
-#define READ_BYTE() VAL_OPEN{                                               \
+
+#define READ_BYTE2(x) {                                               \
 	int _tmp = LIBXSVF_HOST_GETBYTE();                                  \
 	if (_tmp < 0) {                                                     \
 		LIBXSVF_HOST_REPORT_ERROR("Unexpected EOF.");               \
 		goto error;                                                 \
 	}                                                                   \
-	_tmp;                                                               \
-}VAL_CLOSE
+	x = _tmp;                                                               \
+}
 
 #define SHIFT_DATA(_inp, _outp, _maskp, _len, _state, _estate, _edelay, _ret) do { \
 	if (shift_data(h, _inp, _outp, _maskp, _len, _state, _estate, _edelay, _ret) < 0) { \
@@ -271,8 +268,10 @@ int libxsvf_xsvf(struct libxsvf_host *h)
 		  }
 		case XSIR: {
 			STATUS(XSIR);
-			int length = READ_BYTE();
-			unsigned char buf[bits2bytes(length)];
+			//int length = READ_BYTE();
+			int length;
+			READ_BYTE2(length);
+			unsigned char buf[100000/*bits2bytes(length)*/];
 			READ_BITS(buf, length);
 			SHIFT_DATA(buf, (void*)0, (void*)0, length, LIBXSVF_TAP_IRSHIFT,
 					state_xendir ? LIBXSVF_TAP_IRPAUSE : LIBXSVF_TAP_IDLE,
@@ -289,17 +288,20 @@ int libxsvf_xsvf(struct libxsvf_host *h)
 		  }
 		case XRUNTEST: {
 			STATUS(XRUNTEST);
-			state_runtest = READ_LONG();
+			//state_runtest = READ_LONG();
+			READ_LONG2(state_runtest);
 			break;
 		  }
 		case XREPEAT: {
 			STATUS(XREPEAT);
-			state_retries = READ_BYTE();
+			//state_retries = READ_BYTE();
+			READ_BYTE2(state_retries);
 			break;
 		  }
 		case XSDRSIZE: {
 			STATUS(XSDRSIZE);
-			state_dr_size = READ_LONG();
+			//state_dr_size = READ_LONG();
+			READ_LONG2(state_dr_size);
 			buf_tdi_data = LIBXSVF_HOST_REALLOC(buf_tdi_data, bits2bytes(state_dr_size), LIBXSVF_MEM_XSVF_TDI_DATA);
 			buf_tdo_data = LIBXSVF_HOST_REALLOC(buf_tdo_data, bits2bytes(state_dr_size), LIBXSVF_MEM_XSVF_TDO_DATA);
 			buf_tdo_mask = LIBXSVF_HOST_REALLOC(buf_tdo_mask, bits2bytes(state_dr_size), LIBXSVF_MEM_XSVF_TDO_MASK);
@@ -332,7 +334,9 @@ int libxsvf_xsvf(struct libxsvf_host *h)
 		case XSDRINC: {
 			STATUS(XSDRINC);
 			READ_BITS(buf_tdi_data, state_dr_size);
-			int num = READ_BYTE();
+			//int num = READ_BYTE();
+			int num;
+			READ_BYTE2(num);
 			while (1) {
 				SHIFT_DATA(buf_tdi_data, buf_tdo_data, buf_tdo_mask, state_dr_size, LIBXSVF_TAP_DRSHIFT,
 						state_xenddr ? LIBXSVF_TAP_DRPAUSE : LIBXSVF_TAP_IDLE,
@@ -352,8 +356,9 @@ int libxsvf_xsvf(struct libxsvf_host *h)
 				}
 				unsigned char this_byte = 0;
 				for (i=0, j=0; i<state_data_size; i++) {
-					if (i%8 == 0)
-						this_byte = READ_BYTE();
+					if (i % 8 == 0)
+						//this_byte = READ_BYTE();
+						READ_BYTE2(this_byte);
 					while (getbit(buf_data_mask, j) == 0)
 						j++;
 					setbit(buf_tdi_data, j++, getbit(&this_byte, i%8));
@@ -408,25 +413,34 @@ int libxsvf_xsvf(struct libxsvf_host *h)
 				TAP(LIBXSVF_TAP_IDLE);
 				LIBXSVF_HOST_UDELAY(state_runtest, 0, state_runtest);
 			}
-			unsigned char state = READ_BYTE();
+			//unsigned char state = READ_BYTE();
+			unsigned char state;
+			READ_BYTE2(state);
 			TAP(xilinx_tap(state));
 			break;
 		  }
 		case XENDIR: {
 			STATUS(XENDIR);
-			state_xendir = READ_BYTE();
+			//state_xendir = READ_BYTE();
+			READ_BYTE2(state_xendir);
 			break;
 		  }
 		case XENDDR: {
 			STATUS(XENDDR);
-			state_xenddr = READ_BYTE();
+			//state_xenddr = READ_BYTE();
+			READ_BYTE2(state_xendir);
 			break;
 		  }
 		case XSIR2: {
 			STATUS(XSIR2);
-			int length = READ_BYTE();
-			length = length << 8 | READ_BYTE();
-			unsigned char buf[bits2bytes(length)];
+			//int length = READ_BYTE();
+			int length;
+			READ_BYTE2(length);
+			//length = length << 8 | READ_BYTE();
+			int length_temp;
+			READ_BYTE2(length_temp);
+			length = length << 8 | length_temp;
+			unsigned char buf[100000/*bits2bytes(length)*/];
 			READ_BITS(buf, length);
 			SHIFT_DATA(buf, (void*)0, (void*)0, length, LIBXSVF_TAP_IRSHIFT,
 					state_xendir ? LIBXSVF_TAP_IRPAUSE : LIBXSVF_TAP_IDLE,
@@ -437,27 +451,36 @@ int libxsvf_xsvf(struct libxsvf_host *h)
 			STATUS(XCOMMENT);
 			unsigned char this_byte;
 			do {
-				this_byte = READ_BYTE();
+				//this_byte = READ_BYTE();
+				READ_BYTE2(this_byte);
 			} while (this_byte);
 			break;
 		  }
 		case XWAIT:
 		case XWAITSTATE: {
 			STATUS(XWAIT);
-			unsigned char state1 = READ_BYTE();
-			unsigned char state2 = READ_BYTE();
-			long usecs = READ_LONG();
+			//unsigned char state1 = READ_BYTE();
+			unsigned char state1;
+			READ_BYTE2(state1);
+			//unsigned char state2 = READ_BYTE();
+			unsigned char state2;
+			READ_BYTE2(state2);
+			//long usecs = READ_LONG();
+			long usecs;
+			READ_LONG2(usecs);
 			TAP(xilinx_tap(state1));
 			LIBXSVF_HOST_UDELAY(usecs, 0, 0);
 			TAP(xilinx_tap(state2));
 			if (cmd==XWAITSTATE) {
-				READ_LONG();   /* XWAITSTATE has count, time arguments */
+				int dontcare;
+				READ_LONG2(dontcare);   /* XWAITSTATE has count, time arguments */
 			}
 			break;
 		  }
 		case XTRST: {
 			STATUS(XTRST);
-			READ_BYTE();  /* enum: ON, OFF, Z, ABSENT */
+			int dontcare;
+			READ_BYTE2(dontcare);  /* enum: ON, OFF, Z, ABSENT */
 			break;
 		}
 		default:

@@ -68,7 +68,10 @@ int oldtms = -1;
 static void io_tms(int val)
 {
 	if (val != oldtms) {
-		EscapeCommFunction(serialport, val ? CLRBREAK : SETBREAK);
+		if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
+			fprintf(stderr, "Error writing to %s!\n", com_port_name);
+			exit(-1);
+		}
 		oldtms = val;
 	}
 }
@@ -77,14 +80,22 @@ int oldtdi = -1;
 static void io_tdi(int val)
 {
 	if (val != oldtdi) {
-		EscapeCommFunction(serialport, val ? CLRDTR : SETDTR);
+		if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
+			fprintf(stderr, "Error writing to %s!\n", com_port_name);
+			exit(-1);
+		}
 		oldtdi = val;
 	}
 }
 
-static void io_tck(int val)
+static void io_tck_negpulse()
 {
-	EscapeCommFunction(serialport, val ? CLRRTS : SETRTS);
+	char c = 0x00;
+	int written;
+	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
+		fprintf(stderr, "Error writing to %s!\n", com_port_name);
+		exit(-1);
+	}
 	Gate1ms();
 }
 
@@ -104,17 +115,41 @@ static void io_setup(void)
 		0,								// Non Overlapped I/O
 		NULL);							// Null for Comm Devices
 
-	// Return these to 1 after opening serial port.
-	io_tms(1);
-	io_tdi(1);
+	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
+
+	DCB dcb;
+	SecureZeroMemory(&dcb, sizeof(DCB));
+	dcb.DCBlength = sizeof(DCB);
+
+	if (!GetCommState(serialport, &dcb)) { goto error; }
+	dcb.BaudRate = CBR_38400;
+	dcb.fBinary = TRUE;
+	dcb.fParity = FALSE;
+	dcb.fOutxCtsFlow = FALSE;
+	dcb.fOutxDsrFlow = FALSE;
+	dcb.fDtrControl = DTR_CONTROL_DISABLE;
+	dcb.fDsrSensitivity = FALSE;
+	dcb.fTXContinueOnXoff = TRUE;
+	dcb.fOutX = FALSE;
+	dcb.fInX = FALSE;
+	dcb.fNull = FALSE;
+	dcb.fRtsControl = RTS_CONTROL_DISABLE;
+	dcb.fAbortOnError = TRUE;
+	dcb.ByteSize = 8;
+	dcb.Parity = NOPARITY;
+	dcb.StopBits = ONESTOPBIT;
+	if (!SetCommState(serialport, &dcb)) { goto error; }
+	return;
+
+	error:
+	fprintf(stderr, "Error opening %s!\n", com_port_name);
+	if (serialport != INVALID_HANDLE_VALUE) { CloseHandle(serialport); }
+	exit(-1);
+	return;
 }
 
 static void io_shutdown(void)
 {
-	// Return these to 1 before closing serial port.
-	io_tms(1);
-	io_tdi(1);
-
 	CloseHandle(serialport);
 }
 
@@ -122,7 +157,7 @@ static int io_tdo()
 {
 	DWORD status;
 	int success = GetCommModemStatus(serialport, &status);
-	int tdo = (status & MS_CTS_ON ) ? 0 : 1;
+	int tdo = (status & MS_CTS_ON) ? 0 : 1;
 	return tdo;
 }
 
@@ -168,8 +203,7 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 	if (num_tck > 0) {
 		io_tms(tms);
 		while (num_tck > 0) {
-			io_tck(0);
-			io_tck(1);
+			io_tck_negpulse();
 			num_tck--;
 		}
 		if (u->verbose >= 3) {
@@ -192,15 +226,13 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 {
 	struct udata_s* u = h->user_data;
 
-	io_tms(tms);
-
 	if (tdi >= 0) {
 		u->bitcount_tdi++;
 		io_tdi(tdi);
 	}
+	io_tms(tms);
 
-	io_tck(0);
-	io_tck(1);
+	io_tck_negpulse();
 
 	int line_tdo = io_tdo();
 	int rc = line_tdo >= 0 ? line_tdo : 0;

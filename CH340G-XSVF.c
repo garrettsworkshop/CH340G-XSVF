@@ -30,6 +30,11 @@ char* com_port_name = NULL;
 char* file_name = NULL;
 HANDLE serialport = NULL;
 
+static void quit(int code) {
+	getchar();
+	exit(code);
+}
+
 static LONGLONG GetTicksNow() {
 	LARGE_INTEGER now;
 	QueryPerformanceCounter(&now);
@@ -70,7 +75,7 @@ static void io_tms(int val)
 	if (val != oldtms) {
 		if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
 			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			exit(-1);
+			quit();
 		}
 		oldtms = val;
 	}
@@ -82,7 +87,7 @@ static void io_tdi(int val)
 	if (val != oldtdi) {
 		if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
 			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			exit(-1);
+			quit();
 		}
 		oldtdi = val;
 	}
@@ -94,7 +99,7 @@ static void io_tck_negpulse()
 	int written;
 	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
 		fprintf(stderr, "Error writing to %s!\n", com_port_name);
-		exit(-1);
+		quit();
 	}
 	Gate1ms();
 }
@@ -122,7 +127,7 @@ static void io_setup(void)
 	dcb.DCBlength = sizeof(DCB);
 
 	if (!GetCommState(serialport, &dcb)) { goto error; }
-	dcb.BaudRate = CBR_38400;
+	dcb.BaudRate = CBR_115200;
 	dcb.fBinary = TRUE;
 	dcb.fParity = FALSE;
 	dcb.fOutxCtsFlow = FALSE;
@@ -144,7 +149,7 @@ static void io_setup(void)
 	error:
 	fprintf(stderr, "Error opening %s!\n", com_port_name);
 	if (serialport != INVALID_HANDLE_VALUE) { CloseHandle(serialport); }
-	exit(-1);
+	quit();
 	return;
 }
 
@@ -341,7 +346,7 @@ int main(int argc, char** argv)
 	//com_port_name = argv[1];
 	//file_name = argv[2];
 	com_port_name = "COM3";
-	file_name = "C:\\Users\\zanek\\Documents\\GitHub\\GW4302\\cpld\\impl1\\REU_impl1.svf";
+	file_name = "REU_impl1.xsvf";
 
 	copyleft();
 
@@ -354,10 +359,11 @@ int main(int argc, char** argv)
 	u.f = fopen(file_name, "rb");
 	if (u.f == NULL) {
 		fprintf(stderr, "Can't open file.\n");
+		quit(-1);
 		return -1;
 	}
 
-	if (libxsvf_play(&h, LIBXSVF_MODE_SVF) < 0) {
+	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
 		fprintf(stderr, "Error while playing XSVF file.\n");
 	}
 
@@ -372,6 +378,6 @@ int main(int argc, char** argv)
 	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
 	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
 	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
-
+	quit(0);
 	return 0;
 }

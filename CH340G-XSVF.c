@@ -93,15 +93,19 @@ static void io_tdi(int val)
 	}
 }
 
-static void io_tck_negpulse()
-{
-	char c = 0x00;
+OVERLAPPED o;
+static void sendchar(char c) {
 	int written;
-	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
+	if (!WriteFile(serialport, &c, 1, &written, NULL /* &o */)) {
 		fprintf(stderr, "Error writing to %s!\n", com_port_name);
 		quit(-1);
 	}
 	Gate1ms();
+}
+
+static void io_tck_negpulse()
+{
+	sendchar(0x00);
 }
 
 static void io_setup(void)
@@ -117,7 +121,7 @@ static void io_setup(void)
 		0,								// No Sharing
 		NULL,							// No Security
 		OPEN_EXISTING,					// Open existing port only
-		0,								// Non Overlapped I/O
+		FILE_FLAG_OVERLAPPED,								// Non Overlapped I/O
 		NULL);							// Null for Comm Devices
 
 	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
@@ -271,9 +275,7 @@ static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
 static void h_report_tapstate(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	if (u->verbose >= 3) {
-		fprintf(stderr, "[%s]\n", libxsvf_state2str(h->tap_state));
-	}
+	fprintf(stderr, "[%s]\n", libxsvf_state2str(h->tap_state));
 }
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
@@ -366,9 +368,9 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
-		fprintf(stderr, "Error while playing XSVF file.\n");
-	}
+	//if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
+	//	fprintf(stderr, "Error while playing XSVF file.\n");
+	//}
 
 	fclose(u.f);
 

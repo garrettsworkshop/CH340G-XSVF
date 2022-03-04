@@ -75,7 +75,7 @@ static void io_tms(int val)
 	if (val != oldtms) {
 		if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
 			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			quit();
+			quit(-1);
 		}
 		oldtms = val;
 	}
@@ -87,7 +87,7 @@ static void io_tdi(int val)
 	if (val != oldtdi) {
 		if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
 			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			quit();
+			quit(-1);
 		}
 		oldtdi = val;
 	}
@@ -99,7 +99,7 @@ static void io_tck_negpulse()
 	int written;
 	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
 		fprintf(stderr, "Error writing to %s!\n", com_port_name);
-		quit();
+		quit(-1);
 	}
 	Gate1ms();
 }
@@ -149,13 +149,18 @@ static void io_setup(void)
 	error:
 	fprintf(stderr, "Error opening %s!\n", com_port_name);
 	if (serialport != INVALID_HANDLE_VALUE) { CloseHandle(serialport); }
-	quit();
+	quit(-1);
 	return;
 }
 
 static void io_shutdown(void)
 {
+	Gate1ms();
+	Gate1ms();
+	Gate1ms();
 	CloseHandle(serialport);
+	Gate1ms();
+	Gate1ms();
 }
 
 static int io_tdo()
@@ -230,6 +235,8 @@ static int h_getbyte(struct libxsvf_host* h)
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
 {
 	struct udata_s* u = h->user_data;
+	char print_tdo[2];
+	int line_tdo;
 
 	if (tdi >= 0) {
 		u->bitcount_tdi++;
@@ -239,31 +246,27 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 
 	io_tck_negpulse();
 
-	int line_tdo = io_tdo();
-	int rc = line_tdo >= 0 ? line_tdo : 0;
-
-	if (rmask == 1 && u->retval_i < 256)
-		u->retval[u->retval_i++] = line_tdo;
-
-	if (tdo >= 0 && line_tdo >= 0) {
-		u->bitcount_tdo++;
-		if (tdo != line_tdo)
-			rc = -1;
-	}
+	if (tdo >= 0 || rmask == 1) {
+		line_tdo = io_tdo();
+		print_tdo[0] = line_tdo ? '1' : '0';
+	}else { print_tdo[0] = 'X'; }
+	print_tdo[1] = 0;
 
 	if (u->verbose >= 4) {
-		fprintf(stderr, "[TMS:%d, TDI:%d, TDO_ARG:%d, TDO_LINE:%d, RMASK:%d, RC:%d]\n", tms, tdi, tdo, line_tdo, rmask, rc);
+		fprintf(stderr, "[TMS:%d, TDI:%d, TDO_ARG:%d, TDO_LINE:%s]\n", tms, tdi, tdo, print_tdo);
 	}
 
 	u->clockcount++;
-	return rc;
+
+	if (tdo < 0) {
+		return 1;
+	} else {
+		u->bitcount_tdo++;
+		return line_tdo == tdo ? line_tdo : -1;
+	}
 }
 
-static int h_set_frequency(struct libxsvf_host* h, int v)
-{
-	fprintf(stderr, "WARNING: Setting JTAG clock frequency to %d ignored!\n", v);
-	return 0;
-}
+static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
 
 static void h_report_tapstate(struct libxsvf_host* h)
 {

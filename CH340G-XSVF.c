@@ -75,7 +75,7 @@ static void io_tms(int val)
 	if (val != oldtms) {
 		if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
 			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			quit();
+			quit(-1);
 		}
 		oldtms = val;
 	}
@@ -87,21 +87,26 @@ static void io_tdi(int val)
 	if (val != oldtdi) {
 		if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
 			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			quit();
+			quit(-1);
 		}
 		oldtdi = val;
 	}
 }
 
-static void io_tck_negpulse()
-{
-	char c = 0x00;
+OVERLAPPED o;
+static void sendchar(char c) {
 	int written;
-	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
-		fprintf(stderr, "Error writing to %s!\n", com_port_name);
-		quit();
+	o.hEvent = 0;
+	if (!WriteFile(serialport, &c, 1, &written, &o)) {
+		//fprintf(stderr, "Error writing to %s!\n", com_port_name);
+		//quit(-1);
 	}
 	Gate1ms();
+}
+
+static void io_tck_negpulse()
+{
+	sendchar(0x00);
 }
 
 static void io_setup(void)
@@ -117,7 +122,7 @@ static void io_setup(void)
 		0,								// No Sharing
 		NULL,							// No Security
 		OPEN_EXISTING,					// Open existing port only
-		0,								// Non Overlapped I/O
+		FILE_FLAG_OVERLAPPED,								// Non Overlapped I/O
 		NULL);							// Null for Comm Devices
 
 	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
@@ -149,13 +154,17 @@ static void io_setup(void)
 	error:
 	fprintf(stderr, "Error opening %s!\n", com_port_name);
 	if (serialport != INVALID_HANDLE_VALUE) { CloseHandle(serialport); }
-	quit();
+	quit(-1);
 	return;
 }
 
 static void io_shutdown(void)
 {
+	Gate1ms();
+	Gate1ms();
 	CloseHandle(serialport);
+	Gate1ms();
+	Gate1ms();
 }
 
 static int io_tdo()
@@ -268,9 +277,7 @@ static int h_set_frequency(struct libxsvf_host* h, int v)
 static void h_report_tapstate(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	if (u->verbose >= 3) {
-		fprintf(stderr, "[%s]\n", libxsvf_state2str(h->tap_state));
-	}
+	fprintf(stderr, "[%s]\n", libxsvf_state2str(h->tap_state));
 }
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
@@ -363,9 +370,9 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
-		fprintf(stderr, "Error while playing XSVF file.\n");
-	}
+	//if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
+	//	fprintf(stderr, "Error while playing XSVF file.\n");
+	//}
 
 	fclose(u.f);
 

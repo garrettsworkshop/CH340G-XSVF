@@ -354,9 +354,9 @@ int main(int argc, char** argv)
 	if (argc != 3) {
 		fprintf(stderr, "Bad arguments.\n");
 		fprintf(stderr, "Usage: %s <COM_port> <(X)SVF_file>\n", argv[0]);
-		fprintf(stderr, "Continuing with standard args: %s COM3 REU_impl1.xsvf\n", argv[0]);
+		fprintf(stderr, "Continuing with standard args: %s COM3 REU_impl1.svf\n", argv[0]);
 		portname = "COM3";
-		filename = "REU_impl1.xsvf";
+		filename = "REU_impl1.svf";
 		//quit(-1);
 	}
 	else {

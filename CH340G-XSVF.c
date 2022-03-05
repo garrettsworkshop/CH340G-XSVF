@@ -34,9 +34,10 @@
 
 char* portname = NULL;
 HANDLE serialport = NULL;
+char fastmode = 0;
 
 static int quit(int code) {
-	fprintf(stderr, "Press any key to quit.\n");
+	fprintf(stderr, "Press enter to quit.\n");
 	getchar();
 	exit(code);
 	return code;
@@ -74,7 +75,7 @@ static void Gate1ms() {
 static void io_tms(int val)
 {
 	if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
-		fprintf(stderr, "Error writing to %s!\n", portname);
+		fprintf(stderr, "Error setting TMS on %s!\n", portname);
 		quit(-1);
 	}
 }
@@ -82,17 +83,19 @@ static void io_tms(int val)
 static void io_tdi(int val)
 {
 	if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
-		fprintf(stderr, "Error writing to %s!\n", portname);
+		fprintf(stderr, "Error setting TDI on %s!\n", portname);
 		quit(-1);
 	}
 }
 
-OVERLAPPED o;
 static void sendchar(char c) {
 	int written;
-	if (!WriteFile(serialport, &c, 1, &written, NULL /* &o */)) {
-		fprintf(stderr, "Error writing to %s!\n", portname);
-		quit(-1);
+	OVERLAPPED o = { 0 };
+	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
+		if (GetLastError() != ERROR_IO_PENDING) {
+			fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
+			quit(-1);
+		}
 	}
 	Gate1ms();
 }
@@ -105,7 +108,6 @@ static void io_setup(void)
 	memcpy(name + strlen(root), portname, strlen(portname));
 	
 	Setup1msTicks();
-	o.hEvent = 0;
 
 	serialport = CreateFileA(
 		name,							// Port name
@@ -113,8 +115,8 @@ static void io_setup(void)
 		0,								// No sharing
 		NULL,							// No security
 		OPEN_EXISTING,					// Open existing port
-		FILE_FLAG_OVERLAPPED,			// Overlapped I/O
-		//0,							// Non-overlapped I/O
+		//FILE_FLAG_OVERLAPPED,			// Overlapped I/O
+		0,								// Non-overlapped I/O
 		NULL);							// Null for comm devices
 
 	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
@@ -162,9 +164,11 @@ static void io_shutdown(void)
 static int io_tdo()
 {
 	DWORD status;
-	int success = GetCommModemStatus(serialport, &status);
-	int tdo = (status & MS_CTS_ON) ? 0 : 1;
-	return tdo;
+	if (!GetCommModemStatus(serialport, &status)) {
+		fprintf(stderr, "Error reading TDO from %s!\n", portname);
+		quit(-1);
+	}
+	return (status & MS_CTS_ON) ? 0 : 1;
 }
 
 struct udata_s {
@@ -174,13 +178,30 @@ struct udata_s {
 	int bitcount_tdo;
 };
 
+unsigned char tck_queue = 0;
 static int h_setup(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
 	fprintf(stderr, "[SETUP]\n");
 	fflush(stderr);
+	tck_queue = 0;
 	io_setup();
 	return 0;
+}
+
+static void flush_tck(struct udata_s* u) {
+	while (tck_queue >= 5) {
+		sendchar(CLKCHAR_5);
+		tck_queue -= 5;
+	}
+	switch (tck_queue) {
+	case 1: sendchar(CLKCHAR_1); break;
+	case 2: sendchar(CLKCHAR_2); break;
+	case 3: sendchar(CLKCHAR_3); break;
+	case 4: sendchar(CLKCHAR_4); break;
+	default: break;
+	}
+	tck_queue = 0;
 }
 
 static int h_shutdown(struct libxsvf_host* h)
@@ -188,6 +209,7 @@ static int h_shutdown(struct libxsvf_host* h)
 	struct udata_s* u = h->user_data;
 	fprintf(stderr, "[SHUTDOWN]\n");
 	fflush(stderr);
+	flush_tck(u);
 	io_shutdown();
 	return 0;
 }
@@ -221,44 +243,40 @@ static int h_getbyte(struct libxsvf_host* h)
 
 int tms_old = -1;
 int tdi_old = -1;
-unsigned char tck_queue = 0;
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
 {
 	struct udata_s* u = h->user_data;
-	int line_tdo;
 
-	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 5) {
+	if (fastmode && !sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0)) {
 		tck_queue++;
+		if (tdi <= 0) { u->bitcount_tdi++; }
+		u->clockcount++;
 		return 1;
 	}
 	else {
-		while (tck_queue >= 5) {
-			sendchar(CLKCHAR_5);
-			tck_queue -= 5;
-		}
-		switch (tck_queue) {
-		case 1: sendchar(CLKCHAR_1); tck_queue -= 1; break;
-		case 2: sendchar(CLKCHAR_2); tck_queue -= 2; break;
-		case 3: sendchar(CLKCHAR_3); tck_queue -= 3; break;
-		case 4: sendchar(CLKCHAR_4); tck_queue -= 4; break;
-		default: break;
-		}
+		flush_tck(u);
 
-		if (tms != tms_old) { io_tms(tms); }
+		if (tms != tms_old) {
+			io_tms(tms);
+			tms_old = tms;
+		}
 		if (tdi >= 0) {
 			u->bitcount_tdi++;
-			if (tdi != tdi_old) { io_tdi(tdi); }
+			if (tdi != tdi_old) {
+				io_tdi(tdi);
+				tdi_old = tdi;
+			}
 		}
 
 		sendchar(CLKCHAR_1);
 		u->clockcount++;
 
-		if (tdo < 0) { return 1; }
-		else {
-			line_tdo = io_tdo();
+		if (tdo >= 0) {
 			u->bitcount_tdo++;
-			return line_tdo == tdo ? line_tdo : -1;
 		}
+
+		int line_tdo = io_tdo();
+		return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 	}
 }
 
@@ -356,11 +374,13 @@ int main(int argc, char** argv)
 	else {
 		fprintf(stderr, "Unknown extension on input file %s. \n", filename);
 		fprintf(stderr, "Input file must end in .svf or .xsvf");
+		return quit(-1);
 	}
 
 	Setup1msTicks();
 	LONGLONG start = GetTicksNow();
 
+	fastmode = 1;
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error while scanning JTAG chain.\n");
 		return quit(-1);
@@ -372,7 +392,8 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
+	fastmode = 1;
+	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error while playing XSVF file.\n");
 	}
 

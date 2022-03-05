@@ -26,31 +26,33 @@
 #include <stdio.h>
 #include <errno.h>
 
-char* com_port_name = NULL;
-char* file_name = NULL;
+#define CLKCHAR_1 0x00
+#define CLKCHAR_2 0x40
+#define CLKCHAR_3 0x50
+#define CLKCHAR_4 0x54
+#define CLKCHAR_5 0x55
+
+char* portname = NULL;
 HANDLE serialport = NULL;
 
-static void quit(int code) {
+static int quit(int code) {
+	fprintf(stderr, "Press any key to quit.\n");
 	getchar();
 	exit(code);
+	return code;
+}
+
+LONGLONG ticks_per_ms;
+static void Setup1msTicks() {
+	LARGE_INTEGER ticks_per_sec;
+	QueryPerformanceFrequency(&ticks_per_sec);
+	ticks_per_ms = (ticks_per_sec.QuadPart + 999) / 1000;
 }
 
 static LONGLONG GetTicksNow() {
 	LARGE_INTEGER now;
 	QueryPerformanceCounter(&now);
 	return now.QuadPart;
-}
-
-LONGLONG ticks_per_ms;
-char freq_set = 0;
-static LONGLONG Get1msTicks() {
-	if (!freq_set) {
-		LARGE_INTEGER ticks_per_sec;
-		QueryPerformanceFrequency(&ticks_per_sec);
-		ticks_per_ms = (ticks_per_sec.QuadPart + 999) / 1000;
-		freq_set = 1;
-	}
-	return ticks_per_ms;
 }
 
 LONGLONG last;
@@ -61,7 +63,7 @@ static void Gate1ms() {
 		last_set = 1;
 	}
 	LONGLONG now;
-	LONGLONG end = last + Get1msTicks() + 10;
+	LONGLONG end = last + ticks_per_ms + 10;
 	do {
 		now = GetTicksNow();
 	} while (now < end);
@@ -69,27 +71,19 @@ static void Gate1ms() {
 	last = GetTicksNow();
 }
 
-int oldtms = -1;
 static void io_tms(int val)
 {
-	if (val != oldtms) {
-		if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
-			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			quit(-1);
-		}
-		oldtms = val;
+	if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
+		fprintf(stderr, "Error writing to %s!\n", portname);
+		quit(-1);
 	}
 }
 
-int oldtdi = -1;
 static void io_tdi(int val)
 {
-	if (val != oldtdi) {
-		if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
-			fprintf(stderr, "Error writing to %s!\n", com_port_name);
-			quit(-1);
-		}
-		oldtdi = val;
+	if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
+		fprintf(stderr, "Error writing to %s!\n", portname);
+		quit(-1);
 	}
 }
 
@@ -97,15 +91,10 @@ OVERLAPPED o;
 static void sendchar(char c) {
 	int written;
 	if (!WriteFile(serialport, &c, 1, &written, NULL /* &o */)) {
-		fprintf(stderr, "Error writing to %s!\n", com_port_name);
+		fprintf(stderr, "Error writing to %s!\n", portname);
 		quit(-1);
 	}
 	Gate1ms();
-}
-
-static void io_tck_negpulse()
-{
-	sendchar(0x00);
 }
 
 static void io_setup(void)
@@ -113,16 +102,20 @@ static void io_setup(void)
 	char name[100] = { 0 };
 	char root[] = "\\\\.\\\0";
 	memcpy(name, root, strlen(root));
-	memcpy(name + strlen(root), com_port_name, strlen(com_port_name));
+	memcpy(name + strlen(root), portname, strlen(portname));
+	
+	Setup1msTicks();
+	o.hEvent = 0;
 
 	serialport = CreateFileA(
-		name,							// port name
-		GENERIC_READ | GENERIC_WRITE,	// Read/Write
-		0,								// No Sharing
-		NULL,							// No Security
-		OPEN_EXISTING,					// Open existing port only
-		FILE_FLAG_OVERLAPPED,								// Non Overlapped I/O
-		NULL);							// Null for Comm Devices
+		name,							// Port name
+		GENERIC_READ | GENERIC_WRITE,	// Read & Write
+		0,								// No sharing
+		NULL,							// No security
+		OPEN_EXISTING,					// Open existing port
+		FILE_FLAG_OVERLAPPED,			// Overlapped I/O
+		//0,							// Non-overlapped I/O
+		NULL);							// Null for comm devices
 
 	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
 
@@ -151,10 +144,9 @@ static void io_setup(void)
 	return;
 
 	error:
-	fprintf(stderr, "Error opening %s!\n", com_port_name);
+	fprintf(stderr, "Error opening %s!\n", portname);
 	if (serialport != INVALID_HANDLE_VALUE) { CloseHandle(serialport); }
 	quit(-1);
-	return;
 }
 
 static void io_shutdown(void)
@@ -177,21 +169,16 @@ static int io_tdo()
 
 struct udata_s {
 	FILE* f;
-	int verbose;
 	int clockcount;
 	int bitcount_tdi;
 	int bitcount_tdo;
-	int retval_i;
-	int retval[256];
 };
 
 static int h_setup(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	if (u->verbose >= 2) {
-		fprintf(stderr, "[SETUP]\n");
-		fflush(stderr);
-	}
+	fprintf(stderr, "[SETUP]\n");
+	fflush(stderr);
 	io_setup();
 	return 0;
 }
@@ -199,10 +186,8 @@ static int h_setup(struct libxsvf_host* h)
 static int h_shutdown(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	if (u->verbose >= 2) {
-		fprintf(stderr, "[SHUTDOWN]\n");
-		fflush(stderr);
-	}
+	fprintf(stderr, "[SHUTDOWN]\n");
+	fflush(stderr);
 	io_shutdown();
 	return 0;
 }
@@ -210,24 +195,22 @@ static int h_shutdown(struct libxsvf_host* h)
 static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 {
 	struct udata_s* u = h->user_data;
-	if (u->verbose >= 3) {
-		fprintf(stderr, "[DELAY:%ld, TMS:%d, NUM_TCK:%ld]\n", usecs, tms, num_tck);
-		fflush(stderr);
-	}
+	fprintf(stderr, "[DELAY:%ld, TMS:%d, NUM_TCK:%ld]\n", usecs, tms, num_tck);
+	fflush(stderr);
 	if (num_tck > 0) {
 		io_tms(tms);
+		while (num_tck >= 5) { 
+			sendchar(CLKCHAR_5);
+			num_tck -= 5;
+		}
 		while (num_tck > 0) {
-			io_tck_negpulse();
+			sendchar(CLKCHAR_1);
 			num_tck--;
 		}
-		if (u->verbose >= 3) {
-			fprintf(stderr, "[DELAY_AFTER_TCK:%ld]\n", usecs > 0 ? usecs : 0);
-			fflush(stderr);
-		}
+		fprintf(stderr, "[DELAY_AFTER_TCK:%ld]\n", usecs > 0 ? usecs : 0);
+		fflush(stderr);
 	}
-	if (usecs > 0) {
-		Sleep((usecs + 999) / 1000);
-	}
+	if (usecs > 0) { Sleep((usecs + 999) / 1000); }
 }
 
 static int h_getbyte(struct libxsvf_host* h)
@@ -236,37 +219,46 @@ static int h_getbyte(struct libxsvf_host* h)
 	return fgetc(u->f);
 }
 
+int tms_old = -1;
+int tdi_old = -1;
+unsigned char tck_queue = 0;
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
 {
 	struct udata_s* u = h->user_data;
-	char print_tdo[2];
 	int line_tdo;
 
-	if (tdi >= 0) {
-		u->bitcount_tdi++;
-		io_tdi(tdi);
-	}
-	io_tms(tms);
-
-	io_tck_negpulse();
-
-	if (tdo >= 0 || rmask == 1) {
-		line_tdo = io_tdo();
-		print_tdo[0] = line_tdo ? '1' : '0';
-	}else { print_tdo[0] = 'X'; }
-	print_tdo[1] = 0;
-
-	if (u->verbose >= 4) {
-		fprintf(stderr, "[TMS:%d, TDI:%d, TDO_ARG:%d, TDO_LINE:%s]\n", tms, tdi, tdo, print_tdo);
-	}
-
-	u->clockcount++;
-
-	if (tdo < 0) {
+	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 5) {
+		tck_queue++;
 		return 1;
-	} else {
-		u->bitcount_tdo++;
-		return line_tdo == tdo ? line_tdo : -1;
+	}
+	else {
+		while (tck_queue >= 5) {
+			sendchar(CLKCHAR_5);
+			tck_queue -= 5;
+		}
+		switch (tck_queue) {
+		case 1: sendchar(CLKCHAR_1); tck_queue -= 1; break;
+		case 2: sendchar(CLKCHAR_2); tck_queue -= 2; break;
+		case 3: sendchar(CLKCHAR_3); tck_queue -= 3; break;
+		case 4: sendchar(CLKCHAR_4); tck_queue -= 4; break;
+		default: break;
+		}
+
+		if (tms != tms_old) { io_tms(tms); }
+		if (tdi >= 0) {
+			u->bitcount_tdi++;
+			if (tdi != tdi_old) { io_tdi(tdi); }
+		}
+
+		sendchar(CLKCHAR_1);
+		u->clockcount++;
+
+		if (tdo < 0) { return 1; }
+		else {
+			line_tdo = io_tdo();
+			u->bitcount_tdo++;
+			return line_tdo == tdo ? line_tdo : -1;
+		}
 	}
 }
 
@@ -280,17 +272,14 @@ static void h_report_tapstate(struct libxsvf_host* h)
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 {
-	// struct udata_s *u = h->user_data;
-	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n", idcode,
-		(idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
+	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n", 
+		idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
 }
 
 static void h_report_status(struct libxsvf_host* h, const char* message)
 {
 	struct udata_s* u = h->user_data;
-	if (u->verbose >= 2) {
-		fprintf(stderr, "[STATUS] %s\n", message);
-	}
+	fprintf(stderr, "[STATUS] %s\n", message);
 }
 
 static void h_report_error(struct libxsvf_host* h, const char* file, int line, const char* message)
@@ -303,11 +292,7 @@ static int realloc_maxsize[LIBXSVF_MEM_NUM];
 static void* h_realloc(struct libxsvf_host* h, void* ptr, int size, enum libxsvf_mem which)
 {
 	struct udata_s* u = h->user_data;
-	if (size > realloc_maxsize[which])
-		realloc_maxsize[which] = size;
-	if (u->verbose >= 3) {
-		fprintf(stderr, "[REALLOC:%s:%d]\n", libxsvf_mem2str(which), size);
-	}
+	if (size > realloc_maxsize[which]) { realloc_maxsize[which] = size; }
 	return realloc(ptr, size);
 }
 
@@ -332,50 +317,69 @@ static struct libxsvf_host h = {
 
 static void copyleft()
 {
-	fprintf(stderr, "Garrett's Workshop XSVF Player\n");
+	fprintf(stderr, "Garrett's Workshop (X)SVF Player\n");
 	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
+	fprintf(stderr, "Garrett's Workshop XSVF Player is free software licensed under the ISC license.\n");
 }
 
 int main(int argc, char** argv)
 {
-	if (argc != 3) {
-		fprintf(stderr, "Bad arguments.\n");
-		fprintf(stderr, "Usage: %s <COM_port> <XSVF_file>\n", argv[0]);
-		//return -1;
-	}
-
-	//com_port_name = argv[1];
-	//file_name = argv[2];
-	com_port_name = "COM3";
-	file_name = "REU_impl1.xsvf";
-
+	char* filename;
+	size_t filename_len;
+	enum libxsvf_mode mode;
 	copyleft();
 
+	if (argc != 3) {
+		fprintf(stderr, "Bad arguments.\n");
+		fprintf(stderr, "Usage: %s <COM_port> <(X)SVF_file>\n", argv[0]);
+		fprintf(stderr, "Continuing with standard args: %s COM3 REU_impl1.xsvf\n", argv[0]);
+		portname = "COM3";
+		filename = "REU_impl1.xsvf";
+		//quit(-1);
+	}
+	else {
+		portname = argv[1];
+		filename = argv[2];
+	}
+	filename_len = strlen(filename);
+
+	if (!_stricmp(&filename[filename_len - 4], ".svf")) {
+		mode = LIBXSVF_MODE_SVF;
+	}
+	else if (!_stricmp(&filename[filename_len - 5], ".xsvf")) {
+		mode = LIBXSVF_MODE_XSVF;
+	}
+	else {
+		fprintf(stderr, "Unknown extension on input file %s. \n", filename);
+		fprintf(stderr, "Input file must end in .svf or .xsvf");
+	}
+
+	Setup1msTicks();
 	LONGLONG start = GetTicksNow();
 
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error while scanning JTAG chain.\n");
+		return quit(-1);
 	}
 
-	u.f = fopen(file_name, "rb");
+	u.f = fopen(filename, "rb");
 	if (u.f == NULL) {
-		fprintf(stderr, "Can't open file.\n");
-		quit(-1);
-		return -1;
+		fprintf(stderr, "Can't open file %s.\n", filename);
+		return quit(-1);
 	}
 
-	//if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
-	//	fprintf(stderr, "Error while playing XSVF file.\n");
-	//}
+	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
+		fprintf(stderr, "Error while playing XSVF file.\n");
+	}
 
 	fclose(u.f);
 
 	LONGLONG end = GetTicksNow() - start;
-	double elapsed = (double)end / Get1msTicks() / 1000.0f;
+	double elapsed = (double)end / ticks_per_ms / 1000.0f;
 
 	fprintf(stderr, "Done.\n");
 	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
@@ -383,6 +387,5 @@ int main(int argc, char** argv)
 	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
 	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
 	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
-	quit(0);
-	return 0;
+	return quit(0);
 }

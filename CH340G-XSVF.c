@@ -34,6 +34,7 @@ struct udata_s {
 	int clockcount;
 	int bitcount_tdi;
 	int bitcount_tdo;
+	int sendcount;
 };
 
 unsigned char tck_queue = 0;
@@ -127,43 +128,46 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 {
 	struct udata_s* u = h->user_data;
 
+	u->clockcount++;
+	if (tdi >= 0) { u->bitcount_tdi++; }
+
 	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
-		if (tdi <= 0) { u->bitcount_tdi++; }
-		u->clockcount++;
 		tck_queue++;
 		return 1;
 	}
 	else {
 		if (tck_queue > 0) {
-			Gate1ms();
+			Gate();
+			SetGate();
 			flush_tck();
-			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
+			u->sendcount++;
+			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Gate(); }
 		}
 
 		if (tms != tms_old) {
+			if (tdi < 0 || tdi == tdi_old) { SetGate(); }
 			io_tms(tms);
 			tms_old = tms;
 		}
 		if (tdi >= 0) {
-			u->bitcount_tdi++;
 			if (tdi != tdi_old) {
+				SetGate();
 				io_tdi(tdi);
 				tdi_old = tdi;
 			}
 		}
-		if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { SetGateTime(); }
-
-		u->clockcount++;
 
 		if (!sync && tdo < 0) {
 			tck_queue++;
 			return 1;
 		}
 		else {
-			u->bitcount_tdo++;
-			Gate1ms();
+			if (tdo >= 0) { u->bitcount_tdo++; }
+			Gate();
+			SetGate();
 			io_tck(1);
-			Wait1ms();
+			u->sendcount++;
+			Gate();
 			int line_tdo = io_tdo();
 			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 		}
@@ -209,7 +213,7 @@ int main(int argc, char** argv)
 
 	if (argc != 3) {
 		portname = "COM3";
-		filename = "REU_impl1.xsvf";
+		filename = "REU_impl1_XFLASH_CFG_VFY.xsvf";
 		fprintf(stderr, "Bad arguments.\n");
 		fprintf(stderr, "Usage: %s <COM_port> <(X)SVF_file>\n", argv[0]);
 		fprintf(stderr, "Continuing with standard args: %s %s %s\n", argv[0], portname, filename);
@@ -233,7 +237,7 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	Setup1msTicks();
+	SetupTicks();
 	LONGLONG start = GetTicksNow();
 
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
@@ -260,6 +264,7 @@ int main(int argc, char** argv)
 	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
 	fprintf(stderr, "Number of significant TDI bits: %d\n", u.bitcount_tdi);
 	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
+	fprintf(stderr, "Number of TCK pulsetrains: %d\n", u.sendcount);
 	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
 	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
 	return quit(0);

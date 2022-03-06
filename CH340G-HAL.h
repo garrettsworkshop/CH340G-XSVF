@@ -37,11 +37,13 @@ static void io_tdi(int val)
 
 static void io_sendtck(char *buf, int len) {
 	int written;
-	if (!WriteFile(serialport, &buf, len, &written, NULL)) {
+	if (!WriteFile(serialport, buf, len, &written, NULL)) {
 		fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
 		quit(-1);
 	}
-	if (written < len) { io_sendtck(&buf[written], len - written); }
+	if (written < len) {
+		io_sendtck(&buf[written], len - written);
+	}
 }
 
 static void io_tck(unsigned char count) {
@@ -49,14 +51,12 @@ static void io_tck(unsigned char count) {
 	unsigned char fivecount = count / 5;
 	unsigned char remainder = count % 5;
 	memset(send, CLKCHAR_5, fivecount);
-	if (remainder != 0) {
-		switch (remainder) {
-		case 1: send[fivecount] = CLKCHAR_1; break;
-		case 2: send[fivecount] = CLKCHAR_2; break;
-		case 3: send[fivecount] = CLKCHAR_3; break;
-		case 4: send[fivecount] = CLKCHAR_4; break;
-		default: break;
-		}
+	switch (remainder) {
+	case 1: send[fivecount] = CLKCHAR_1; break;
+	case 2: send[fivecount] = CLKCHAR_2; break;
+	case 3: send[fivecount] = CLKCHAR_3; break;
+	case 4: send[fivecount] = CLKCHAR_4; break;
+	default: break;
 	}
 	io_sendtck(send, fivecount + (remainder == 0 ? 0 : 1));
 }
@@ -78,7 +78,7 @@ static void io_setup(void)
 	memcpy(name, root, strlen(root));
 	memcpy(name + strlen(root), portname, strlen(portname));
 
-	Setup1msTicks();
+	SetupTicks();
 
 	serialport = CreateFileA(
 		name,							// Port name
@@ -123,11 +123,11 @@ error:
 
 static void io_shutdown(void)
 {
-	Wait1ms();
-	Wait1ms();
+	Wait();
+	Wait();
 	CloseHandle(serialport);
-	Wait1ms();
-	Wait1ms();
+	Wait();
+	Wait();
 }
 
 #endif

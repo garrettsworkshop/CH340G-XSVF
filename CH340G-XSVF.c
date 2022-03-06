@@ -35,6 +35,7 @@
 char* portname = NULL;
 HANDLE serialport = NULL;
 char fastmode = 0;
+char async = 0;
 
 static int quit(int code) {
 	fprintf(stderr, "Press enter to quit.\n");
@@ -89,12 +90,25 @@ static void io_tdi(int val)
 }
 
 static void sendchar(char c) {
-	int written;
-	OVERLAPPED o = { 0 };
-	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
-		if (GetLastError() != ERROR_IO_PENDING) {
-			fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
+	/*if (c == CLKCHAR_1) {
+		if (!EscapeCommFunction(serialport, SETBREAK)) {
+			fprintf(stderr, "Error setting TCK on %s!\n", portname);
 			quit(-1);
+		}
+		Gate1ms();
+		if (!EscapeCommFunction(serialport, CLRBREAK)) {
+			fprintf(stderr, "Error setting TCK on %s!\n", portname);
+			quit(-1);
+		}
+	}
+	else*/ {
+		int written;
+		OVERLAPPED o = { 0 };
+		if (!WriteFile(serialport, &c, 1, &written, async ? &o : NULL)) {
+			if (GetLastError() != ERROR_IO_PENDING || !async) {
+				fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
+				quit(-1);
+			}
 		}
 	}
 	Gate1ms();
@@ -115,8 +129,7 @@ static void io_setup(void)
 		0,								// No sharing
 		NULL,							// No security
 		OPEN_EXISTING,					// Open existing port
-		//FILE_FLAG_OVERLAPPED,			// Overlapped I/O
-		0,								// Non-overlapped I/O
+		async ? FILE_FLAG_OVERLAPPED : 0,
 		NULL);							// Null for comm devices
 
 	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
@@ -248,9 +261,9 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	struct udata_s* u = h->user_data;
 
 	if (fastmode && !sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0)) {
-		tck_queue++;
 		if (tdi <= 0) { u->bitcount_tdi++; }
 		u->clockcount++;
+		tck_queue++;
 		return 1;
 	}
 	else {
@@ -268,15 +281,20 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 			}
 		}
 
-		sendchar(CLKCHAR_1);
 		u->clockcount++;
 
 		if (tdo >= 0) {
-			u->bitcount_tdo++;
-		}
+			sendchar(CLKCHAR_1);
 
-		int line_tdo = io_tdo();
-		return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
+			u->bitcount_tdo++;
+
+			int line_tdo = io_tdo();
+			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
+		}
+		else {
+			tck_queue++;
+			return 1;
+		}
 	}
 }
 
@@ -381,6 +399,7 @@ int main(int argc, char** argv)
 	LONGLONG start = GetTicksNow();
 
 	fastmode = 1;
+	async = 0;
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error while scanning JTAG chain.\n");
 		return quit(-1);
@@ -393,6 +412,7 @@ int main(int argc, char** argv)
 	}
 
 	fastmode = 1;
+	async = 0;
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error while playing XSVF file.\n");
 	}

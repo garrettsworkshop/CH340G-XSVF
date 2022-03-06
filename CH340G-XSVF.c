@@ -73,6 +73,13 @@ static void Gate1ms() {
 	last = GetTicksNow();
 }
 
+
+static void Wait1ms() {
+	LONGLONG now;
+	LONGLONG end = GetTicksNow() + ticks_per_ms + 10;
+	while (GetTicksNow() < end);
+}
+
 static void io_tms(int val)
 {
 	if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
@@ -90,28 +97,11 @@ static void io_tdi(int val)
 }
 
 static void sendchar(char c) {
-	/*if (c == CLKCHAR_1) {
-		if (!EscapeCommFunction(serialport, SETBREAK)) {
-			fprintf(stderr, "Error setting TCK on %s!\n", portname);
-			quit(-1);
-		}
-		Gate1ms();
-		if (!EscapeCommFunction(serialport, CLRBREAK)) {
-			fprintf(stderr, "Error setting TCK on %s!\n", portname);
-			quit(-1);
-		}
+	int written;
+	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
+		fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
+		quit(-1);
 	}
-	else*/ {
-		int written;
-		OVERLAPPED o = { 0 };
-		if (!WriteFile(serialport, &c, 1, &written, async ? &o : NULL)) {
-			if (GetLastError() != ERROR_IO_PENDING || !async) {
-				fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
-				quit(-1);
-			}
-		}
-	}
-	Gate1ms();
 }
 
 static void io_setup(void)
@@ -139,7 +129,7 @@ static void io_setup(void)
 	dcb.DCBlength = sizeof(DCB);
 
 	if (!GetCommState(serialport, &dcb)) { goto error; }
-	dcb.BaudRate = CBR_115200;
+	dcb.BaudRate = 2000000;
 	dcb.fBinary = TRUE;
 	dcb.fParity = FALSE;
 	dcb.fOutxCtsFlow = FALSE;
@@ -167,8 +157,7 @@ static void io_setup(void)
 static void io_shutdown(void)
 {
 	Gate1ms();
-	Gate1ms();
-	Gate1ms();
+	Gate1ms();	
 	CloseHandle(serialport);
 	Gate1ms();
 	Gate1ms();
@@ -203,16 +192,26 @@ static int h_setup(struct libxsvf_host* h)
 }
 
 static void flush_tck(struct udata_s* u) {
-	while (tck_queue >= 5) {
-		sendchar(CLKCHAR_5);
-		tck_queue -= 5;
+	unsigned char pulses = tck_queue;
+	char send[64] = { 0 };
+	unsigned char fivecount = pulses / 5;
+	unsigned char remainder = pulses % 5;
+	for (int i = 0; i < fivecount; i++) {
+		send[i] = CLKCHAR_5;
 	}
-	switch (tck_queue) {
-	case 1: sendchar(CLKCHAR_1); break;
-	case 2: sendchar(CLKCHAR_2); break;
-	case 3: sendchar(CLKCHAR_3); break;
-	case 4: sendchar(CLKCHAR_4); break;
-	default: break;
+	if (remainder != 0) {
+		switch (remainder) {
+		case 1: send[fivecount] = CLKCHAR_1; break;
+		case 2: send[fivecount] = CLKCHAR_2; break;
+		case 3: send[fivecount] = CLKCHAR_3; break;
+		case 4: send[fivecount] = CLKCHAR_4; break;
+		default: break;
+		}
+	}
+	int written;
+	if (!WriteFile(serialport, send, fivecount + (remainder == 0 ? 0 : 1), &written, NULL)) {
+		fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
+		quit(-1);
 	}
 	tck_queue = 0;
 }
@@ -260,14 +259,17 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 {
 	struct udata_s* u = h->user_data;
 
-	if (fastmode && !sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0)) {
+	if (fastmode && !sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
 		if (tdi <= 0) { u->bitcount_tdi++; }
 		u->clockcount++;
 		tck_queue++;
 		return 1;
 	}
 	else {
-		flush_tck(u);
+		if (tck_queue > 0) {
+			flush_tck(u);
+			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
+		}
 
 		if (tms != tms_old) {
 			io_tms(tms);
@@ -280,20 +282,20 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 				tdi_old = tdi;
 			}
 		}
+		if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
 
 		u->clockcount++;
 
-		if (tdo >= 0) {
-			sendchar(CLKCHAR_1);
-
-			u->bitcount_tdo++;
-
-			int line_tdo = io_tdo();
-			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
-		}
-		else {
+		if (fastmode && tdo < 0 && !sync) {
 			tck_queue++;
 			return 1;
+		}
+		else {
+			u->bitcount_tdo++;
+			sendchar(CLKCHAR_1);
+			Wait1ms();
+			int line_tdo = io_tdo();
+			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 		}
 	}
 }
@@ -370,11 +372,11 @@ int main(int argc, char** argv)
 	copyleft();
 
 	if (argc != 3) {
+		portname = "COM3";
+		filename = "REU_impl1.xsvf";
 		fprintf(stderr, "Bad arguments.\n");
 		fprintf(stderr, "Usage: %s <COM_port> <(X)SVF_file>\n", argv[0]);
-		fprintf(stderr, "Continuing with standard args: %s COM3 REU_impl1.xsvf\n", argv[0]);
-		portname = "COM3";
-		filename = "REU_impl1_novfy.xsvf";
+		fprintf(stderr, "Continuing with standard args: %s %s %s\n", argv[0], portname, filename);
 		//quit(-1);
 	}
 	else {

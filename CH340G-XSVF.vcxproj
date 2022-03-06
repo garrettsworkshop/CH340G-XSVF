@@ -153,6 +153,9 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CH340G-HAL.h" />
+    <ClInclude Include="CH340G-quit.h" />
+    <ClInclude Include="CH340G-time.h" />
     <ClInclude Include="libxsvf.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

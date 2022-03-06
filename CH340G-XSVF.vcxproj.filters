@@ -44,5 +44,14 @@
     <ClInclude Include="libxsvf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="CH340G-HAL.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CH340G-quit.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CH340G-time.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

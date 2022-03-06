@@ -25,153 +25,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
-
-#define CLKCHAR_1 0x00
-#define CLKCHAR_2 0x40
-#define CLKCHAR_3 0x50
-#define CLKCHAR_4 0x54
-#define CLKCHAR_5 0x55
-
-char* portname = NULL;
-HANDLE serialport = NULL;
-char fastmode = 0;
-char async = 0;
-
-static int quit(int code) {
-	fprintf(stderr, "Press enter to quit.\n");
-	getchar();
-	exit(code);
-	return code;
-}
-
-LONGLONG ticks_per_ms;
-static void Setup1msTicks() {
-	LARGE_INTEGER ticks_per_sec;
-	QueryPerformanceFrequency(&ticks_per_sec);
-	ticks_per_ms = (ticks_per_sec.QuadPart + 999) / 1000;
-}
-
-static LONGLONG GetTicksNow() {
-	LARGE_INTEGER now;
-	QueryPerformanceCounter(&now);
-	return now.QuadPart;
-}
-
-LONGLONG last;
-char last_set = 0;
-static void Gate1ms() {
-	if (!last_set) {
-		last = GetTicksNow();
-		last_set = 1;
-	}
-	LONGLONG now;
-	LONGLONG end = last + ticks_per_ms + 10;
-	do {
-		now = GetTicksNow();
-	} while (now < end);
-
-	last = GetTicksNow();
-}
-
-
-static void Wait1ms() {
-	LONGLONG now;
-	LONGLONG end = GetTicksNow() + ticks_per_ms + 10;
-	while (GetTicksNow() < end);
-}
-
-static void io_tms(int val)
-{
-	if (!EscapeCommFunction(serialport, val ? CLRRTS : SETRTS)) {
-		fprintf(stderr, "Error setting TMS on %s!\n", portname);
-		quit(-1);
-	}
-}
-
-static void io_tdi(int val)
-{
-	if (!EscapeCommFunction(serialport, val ? CLRDTR : SETDTR)) {
-		fprintf(stderr, "Error setting TDI on %s!\n", portname);
-		quit(-1);
-	}
-}
-
-static void sendchar(char c) {
-	int written;
-	if (!WriteFile(serialport, &c, 1, &written, NULL)) {
-		fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
-		quit(-1);
-	}
-}
-
-static void io_setup(void)
-{
-	char name[100] = { 0 };
-	char root[] = "\\\\.\\\0";
-	memcpy(name, root, strlen(root));
-	memcpy(name + strlen(root), portname, strlen(portname));
-	
-	Setup1msTicks();
-
-	serialport = CreateFileA(
-		name,							// Port name
-		GENERIC_READ | GENERIC_WRITE,	// Read & Write
-		0,								// No sharing
-		NULL,							// No security
-		OPEN_EXISTING,					// Open existing port
-		async ? FILE_FLAG_OVERLAPPED : 0,
-		NULL);							// Null for comm devices
-
-	if (serialport == INVALID_HANDLE_VALUE) { goto error; }
-
-	DCB dcb;
-	SecureZeroMemory(&dcb, sizeof(DCB));
-	dcb.DCBlength = sizeof(DCB);
-
-	if (!GetCommState(serialport, &dcb)) { goto error; }
-	dcb.BaudRate = 2000000;
-	dcb.fBinary = TRUE;
-	dcb.fParity = FALSE;
-	dcb.fOutxCtsFlow = FALSE;
-	dcb.fOutxDsrFlow = FALSE;
-	dcb.fDtrControl = DTR_CONTROL_DISABLE;
-	dcb.fDsrSensitivity = FALSE;
-	dcb.fTXContinueOnXoff = TRUE;
-	dcb.fOutX = FALSE;
-	dcb.fInX = FALSE;
-	dcb.fNull = FALSE;
-	dcb.fRtsControl = RTS_CONTROL_DISABLE;
-	dcb.fAbortOnError = TRUE;
-	dcb.ByteSize = 8;
-	dcb.Parity = NOPARITY;
-	dcb.StopBits = ONESTOPBIT;
-	if (!SetCommState(serialport, &dcb)) { goto error; }
-	return;
-
-	error:
-	fprintf(stderr, "Error opening %s!\n", portname);
-	if (serialport != INVALID_HANDLE_VALUE) { CloseHandle(serialport); }
-	quit(-1);
-}
-
-static void io_shutdown(void)
-{
-	Gate1ms();
-	Gate1ms();	
-	CloseHandle(serialport);
-	Gate1ms();
-	Gate1ms();
-}
-
-static int io_tdo()
-{
-	DWORD status;
-	if (!GetCommModemStatus(serialport, &status)) {
-		fprintf(stderr, "Error reading TDO from %s!\n", portname);
-		quit(-1);
-	}
-	return (status & MS_CTS_ON) ? 0 : 1;
-}
+#include "CH340G-HAL.h"
+#include "CH340G-time.h"
+#include "CH340G-quit.h"
 
 struct udata_s {
 	FILE* f;
@@ -181,6 +37,12 @@ struct udata_s {
 };
 
 unsigned char tck_queue = 0;
+
+static void flush_tck() {
+	io_tck(tck_queue);
+	tck_queue = 0;
+}
+
 static int h_setup(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
@@ -191,37 +53,12 @@ static int h_setup(struct libxsvf_host* h)
 	return 0;
 }
 
-static void flush_tck(struct udata_s* u) {
-	unsigned char pulses = tck_queue;
-	char send[64] = { 0 };
-	unsigned char fivecount = pulses / 5;
-	unsigned char remainder = pulses % 5;
-	for (int i = 0; i < fivecount; i++) {
-		send[i] = CLKCHAR_5;
-	}
-	if (remainder != 0) {
-		switch (remainder) {
-		case 1: send[fivecount] = CLKCHAR_1; break;
-		case 2: send[fivecount] = CLKCHAR_2; break;
-		case 3: send[fivecount] = CLKCHAR_3; break;
-		case 4: send[fivecount] = CLKCHAR_4; break;
-		default: break;
-		}
-	}
-	int written;
-	if (!WriteFile(serialport, send, fivecount + (remainder == 0 ? 0 : 1), &written, NULL)) {
-		fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
-		quit(-1);
-	}
-	tck_queue = 0;
-}
-
 static int h_shutdown(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
 	fprintf(stderr, "[SHUTDOWN]\n");
 	fflush(stderr);
-	flush_tck(u);
+	flush_tck();
 	io_shutdown();
 	return 0;
 }
@@ -233,14 +70,11 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 	fflush(stderr);
 	if (num_tck > 0) {
 		io_tms(tms);
-		while (num_tck >= 5) { 
-			sendchar(CLKCHAR_5);
-			num_tck -= 5;
+		while (num_tck > 255) {
+			io_tck(255);
+			num_tck -= 255;
 		}
-		while (num_tck > 0) {
-			sendchar(CLKCHAR_1);
-			num_tck--;
-		}
+		io_tck((unsigned char)num_tck);
 		fprintf(stderr, "[DELAY_AFTER_TCK:%ld]\n", usecs > 0 ? usecs : 0);
 		fflush(stderr);
 	}
@@ -251,53 +85,6 @@ static int h_getbyte(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
 	return fgetc(u->f);
-}
-
-int tms_old = -1;
-int tdi_old = -1;
-static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
-{
-	struct udata_s* u = h->user_data;
-
-	if (fastmode && !sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
-		if (tdi <= 0) { u->bitcount_tdi++; }
-		u->clockcount++;
-		tck_queue++;
-		return 1;
-	}
-	else {
-		if (tck_queue > 0) {
-			flush_tck(u);
-			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
-		}
-
-		if (tms != tms_old) {
-			io_tms(tms);
-			tms_old = tms;
-		}
-		if (tdi >= 0) {
-			u->bitcount_tdi++;
-			if (tdi != tdi_old) {
-				io_tdi(tdi);
-				tdi_old = tdi;
-			}
-		}
-		if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
-
-		u->clockcount++;
-
-		if (fastmode && tdo < 0 && !sync) {
-			tck_queue++;
-			return 1;
-		}
-		else {
-			u->bitcount_tdo++;
-			sendchar(CLKCHAR_1);
-			Wait1ms();
-			int line_tdo = io_tdo();
-			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
-		}
-	}
 }
 
 static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
@@ -332,6 +119,55 @@ static void* h_realloc(struct libxsvf_host* h, void* ptr, int size, enum libxsvf
 	struct udata_s* u = h->user_data;
 	if (size > realloc_maxsize[which]) { realloc_maxsize[which] = size; }
 	return realloc(ptr, size);
+}
+
+int tms_old = -1;
+int tdi_old = -1;
+static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
+{
+	struct udata_s* u = h->user_data;
+
+	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
+		if (tdi <= 0) { u->bitcount_tdi++; }
+		u->clockcount++;
+		tck_queue++;
+		return 1;
+	}
+	else {
+		if (tck_queue > 0) {
+			Gate1ms();
+			flush_tck();
+			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
+		}
+
+		if (tms != tms_old) {
+			io_tms(tms);
+			tms_old = tms;
+		}
+		if (tdi >= 0) {
+			u->bitcount_tdi++;
+			if (tdi != tdi_old) {
+				io_tdi(tdi);
+				tdi_old = tdi;
+			}
+		}
+		if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { SetGateTime(); }
+
+		u->clockcount++;
+
+		if (!sync && tdo < 0) {
+			tck_queue++;
+			return 1;
+		}
+		else {
+			u->bitcount_tdo++;
+			Gate1ms();
+			io_tck(1);
+			Wait1ms();
+			int line_tdo = io_tdo();
+			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
+		}
+	}
 }
 
 static struct udata_s u;
@@ -400,8 +236,6 @@ int main(int argc, char** argv)
 	Setup1msTicks();
 	LONGLONG start = GetTicksNow();
 
-	fastmode = 1;
-	async = 0;
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error while scanning JTAG chain.\n");
 		return quit(-1);
@@ -413,8 +247,6 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	fastmode = 1;
-	async = 0;
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error while playing XSVF file.\n");
 	}

@@ -36,6 +36,25 @@ struct udata_s {
 	int bitcount_tdo;
 	int sendcount;
 };
+static struct udata_s u;
+
+LONGLONG start = 0;
+void printinfo() {
+	LONGLONG end = GetTicksNow() - start;
+	double elapsed = (double)end / ticks_per_ms / 1000.0f;
+	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
+	fprintf(stderr, "Number of significant TDI bits: %d\n", u.bitcount_tdi);
+	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
+	fprintf(stderr, "Number of TCK pulsetrains: %d\n", u.sendcount);
+	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
+	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);	
+}
+void printshortinfo() {
+	LONGLONG end = GetTicksNow() - start;
+	double elapsed = (double)end / ticks_per_ms / 1000.0f;
+	fprintf(stderr, "Bits: %d\tTime: %lf sec.\tSpeed: %lf b/sec.\n",
+		u.clockcount, elapsed, (double)u.clockcount / elapsed);
+}
 
 unsigned char tck_queue = 0;
 
@@ -67,8 +86,6 @@ static int h_shutdown(struct libxsvf_host* h)
 static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[DELAY:%ld, TMS:%d, NUM_TCK:%ld]\n", usecs, tms, num_tck);
-	fflush(stderr);
 	if (num_tck > 0) {
 		io_tms(tms);
 		while (num_tck > 255) {
@@ -76,8 +93,6 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 			num_tck -= 255;
 		}
 		io_tck((unsigned char)num_tck);
-		fprintf(stderr, "[DELAY_AFTER_TCK:%ld]\n", usecs > 0 ? usecs : 0);
-		fflush(stderr);
 	}
 	if (usecs > 0) { Sleep((usecs + 999) / 1000); }
 }
@@ -93,19 +108,32 @@ static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
 static void h_report_tapstate(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[%s]\n", libxsvf_state2str(h->tap_state));
+	char* message = libxsvf_state2str(h->tap_state);
+	char newmessage[40];
+	memset(newmessage, ' ', sizeof(newmessage) - 1);
+	newmessage[sizeof(newmessage) - 1] = 0;
+	memcpy(newmessage, message, strlen(message));
+	newmessage[strlen(message)] = ']';
+	fprintf(stderr, "[%s  ", newmessage);
+	printshortinfo();
 }
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 {
 	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n", 
 		idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
+	printshortinfo();
 }
 
 static void h_report_status(struct libxsvf_host* h, const char* message)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[STATUS] %s\n", message);
+	char newmessage[33];
+	memset(newmessage, ' ', sizeof(newmessage) - 1);
+	newmessage[sizeof(newmessage) - 1] = 0;
+	memcpy(newmessage, message, strlen(message));
+	fprintf(stderr, "[STATUS] %s ", newmessage);
+	printshortinfo();
 }
 
 static void h_report_error(struct libxsvf_host* h, const char* file, int line, const char* message)
@@ -174,8 +202,6 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	}
 }
 
-static struct udata_s u;
-
 static struct libxsvf_host h = {
 	.udelay = h_udelay,
 	.setup = h_setup,
@@ -213,7 +239,7 @@ int main(int argc, char** argv)
 
 	if (argc != 3) {
 		portname = "COM3";
-		filename = "REU_impl1_XFLASH_CFG_VFY.xsvf";
+		filename = "update.xsvf";
 		fprintf(stderr, "Bad arguments.\n");
 		fprintf(stderr, "Usage: %s <COM_port> <(X)SVF_file>\n", argv[0]);
 		fprintf(stderr, "Continuing with standard args: %s %s %s\n", argv[0], portname, filename);
@@ -238,7 +264,7 @@ int main(int argc, char** argv)
 	}
 
 	SetupTicks();
-	LONGLONG start = GetTicksNow();
+	start = GetTicksNow();
 
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error while scanning JTAG chain.\n");
@@ -253,19 +279,16 @@ int main(int argc, char** argv)
 
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error while playing XSVF file.\n");
+		printinfo();
+		fflush(stderr);
+		fprintf(stderr, "Programming FAILED.\n");
+	}
+	else {
+		printinfo();
+		fflush(stderr);
+		fprintf(stderr, "Programming SUCCESSFUL.\n");
 	}
 
 	fclose(u.f);
-
-	LONGLONG end = GetTicksNow() - start;
-	double elapsed = (double)end / ticks_per_ms / 1000.0f;
-
-	fprintf(stderr, "Done.\n");
-	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
-	fprintf(stderr, "Number of significant TDI bits: %d\n", u.bitcount_tdi);
-	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
-	fprintf(stderr, "Number of TCK pulsetrains: %d\n", u.sendcount);
-	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
-	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
 	return quit(0);
 }

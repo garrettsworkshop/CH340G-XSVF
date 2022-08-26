@@ -16,7 +16,7 @@
 #define CLKCHAR_4 0x54
 #define CLKCHAR_5 0x55
 
-char* portname = NULL;
+char portname[16] = { 0 };
 HANDLE serialport = NULL;
 
 static void io_tms(int val)

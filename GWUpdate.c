@@ -19,8 +19,10 @@
  */
 
 #include "libxsvf.h"
+#include "comsearch.h"
 
 #include <Windows.h>
+#include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -28,6 +30,11 @@
 #include "CH340G-HAL.h"
 #include "CH340G-time.h"
 #include "CH340G-quit.h"
+
+uint8_t expected_devices;
+uint32_t expected_idcode;
+uint8_t found_devices;
+uint32_t found_idcode;
 
 struct udata_s {
 	FILE* f;
@@ -99,6 +106,9 @@ static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 {
 	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n", 
 		idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
+
+	found_devices++;
+	found_idcode = idcode;
 }
 
 static void h_report_status(struct libxsvf_host* h, const char* message)
@@ -191,70 +201,121 @@ static struct libxsvf_host h = {
 
 static void copyleft()
 {
-	fprintf(stderr, "Garrett's Workshop (X)SVF Player\n");
+	fprintf(stderr, "GWUpdate\n");
 	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
-	fprintf(stderr, "Garrett's Workshop XSVF Player is free software licensed under the ISC license.\n");
+	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n");
 }
+
+#define STRBUF_SIZE (68 * 1024)
+char strbuf[STRBUF_SIZE + 1];
 
 int main(int argc, char** argv)
 {
-	char* filename;
-	size_t filename_len;
 	enum libxsvf_mode mode;
+	int portnum;
+
 	copyleft();
 
-	if (argc != 3) {
-		portname = "COM3";
-		filename = "REU_impl1.xsvf";
-		fprintf(stderr, "Bad arguments.\n");
-		fprintf(stderr, "Usage: %s <COM_port> <(X)SVF_file>\n", argv[0]);
-		fprintf(stderr, "Continuing with standard args: %s %s %s\n", argv[0], portname, filename);
-		//quit(-1);
-	}
-	else {
-		portname = argv[1];
-		filename = argv[2];
-	}
-	filename_len = strlen(filename);
-
-	if (!_stricmp(&filename[filename_len - 4], ".svf")) {
-		mode = LIBXSVF_MODE_SVF;
-	}
-	else if (!_stricmp(&filename[filename_len - 5], ".xsvf")) {
-		mode = LIBXSVF_MODE_XSVF;
-	}
-	else {
-		fprintf(stderr, "Unknown extension on input file %s. \n", filename);
-		fprintf(stderr, "Input file must end in .svf or .xsvf");
+	if (argc != 1) {
+		fprintf(stderr, "Error! Bad arguments.\n");
 		return quit(-1);
 	}
 
+	u.f = fopen(argv[0], "rb");
+	if (!u.f) {
+		fprintf(stderr, "Error! Failed to open GWUpdate executable as data file.\n");
+		return quit(-1);
+	}
+
+	// Find XSVF data
+	mode = LIBXSVF_MODE_SVF; // Default to SVF mode
+	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
+		char c;
+		if (i > 20) { // Looked too many times fail
+			fprintf(stderr, "Error! (X)SVF flag not found.\n");
+			return quit(-1);
+		}
+		if (fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
+			fprintf(stderr, "Error! Seeked past end of file looking for (X)SVF flag.\n");
+			return quit(-1);
+		}
+		
+		c = getchar(u.f);
+		if (c == 'X') { // First 'X'
+			mode = LIBXSVF_MODE_XSVF;
+			// Then 'S', else try next 128k
+			if (getchar(u.f) != 'S') { break; }
+		}
+		else if (c != 'S') { break; } // First 'S'
+
+		// Then 'V', then 'F', else try next 128k
+		if (getchar(u.f) != 'V') { break; }
+		if (getchar(u.f) != 'F') { break; }
+	}
+
+	// Ensure update file indicates only one device on JTAG chain
+	if (expected_devices = fgetc(u.f) != 1) { // So check next char == 1
+		fprintf(stderr, "Error! Update file has multiple devices on JTAG chain but GWUpdate only supports one device.\n");
+		return quit(-1);
+	}
+	found_devices = 0;
+
+	// Read single expected IDCODE
+	if (fread(&expected_idcode, sizeof(uint32_t), 1, u.f) != 1) { // Couldn't read idcode
+		fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
+		return quit(-1);
+	}
+
+	// Print instructions following (X)SVF flag.
+	if (!strbuf) { // Malloc fail
+		fprintf(stderr, "Error! Failed to allocate string buffer.\n");
+		return quit(-1);
+	}
+	if (!fgets(strbuf, STRBUF_SIZE, u.f)) { // Read instructions string into buffer
+		fprintf(stderr, "Error! Failed to read update instructions from file.\n");
+		return quit(-1);
+	}
+	if (!puts(strbuf)) { // Display instructions
+		fprintf(stderr, "Error! Failed to display update instructions.\n");
+		return quit(-1);
+	}
+
+	// Find COM port
+	if ((portnum = comsearch(portname)) > 0) {
+		fprintf(stderr, "Error! Could not find USB device.\n");
+		return quit(-1);
+	}
+
+	// Start elapsed time timer
 	Setup1msTicks();
 	LONGLONG start = GetTicksNow();
 
+	// Scan JTAG chain
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
-		fprintf(stderr, "Error while scanning JTAG chain.\n");
+		fprintf(stderr, "Error! Failed to scan JTAG chain.\n");
 		return quit(-1);
 	}
 
-	u.f = fopen(filename, "rb");
-	if (u.f == NULL) {
-		fprintf(stderr, "Can't open file %s.\n", filename);
+	// Check for expected IDCODE
+	if (expected_idcode != found_idcode) {
+		fprintf(stderr, "Error! Incorrect device found on JTAG chain.\n");
 		return quit(-1);
 	}
 
+	// Play update (X)SVF
 	if (libxsvf_play(&h, mode) < 0) {
-		fprintf(stderr, "Error while playing XSVF file.\n");
+		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
 	}
-
-	fclose(u.f);
 
 	LONGLONG end = GetTicksNow() - start;
 	double elapsed = (double)end / ticks_per_ms / 1000.0f;
+
+	// Close file
+	fclose(u.f);
 
 	fprintf(stderr, "Done.\n");
 	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);

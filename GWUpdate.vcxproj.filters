@@ -15,9 +15,6 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="CH340G-XSVF.c">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="statename.c">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -39,6 +36,12 @@
     <ClCompile Include="xsvf.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="GWUpdate.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="comsearch.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="libxsvf.h">
@@ -51,6 +54,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="CH340G-time.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="comsearch.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

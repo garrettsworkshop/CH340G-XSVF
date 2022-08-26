@@ -41,7 +41,27 @@ struct udata_s {
 	int clockcount;
 	int bitcount_tdi;
 	int bitcount_tdo;
+	int sendcount;
 };
+static struct udata_s u;
+
+LONGLONG start = 0;
+void printinfo() {
+	LONGLONG end = GetTicksNow() - start;
+	double elapsed = (double)end / ticks_per_ms / 1000.0f;
+	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
+	fprintf(stderr, "Number of significant TDI bits: %d\n", u.bitcount_tdi);
+	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
+	fprintf(stderr, "Number of TCK pulsetrains: %d\n", u.sendcount);
+	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
+	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);	
+}
+void printshortinfo() {
+	LONGLONG end = GetTicksNow() - start;
+	double elapsed = (double)end / ticks_per_ms / 1000.0f;
+	fprintf(stderr, "Bits: %d\tTime: %lf sec.\tSpeed: %lf b/sec.\n",
+		u.clockcount, elapsed, (double)u.clockcount / elapsed);
+}
 
 unsigned char tck_queue = 0;
 
@@ -73,8 +93,6 @@ static int h_shutdown(struct libxsvf_host* h)
 static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[DELAY:%ld, TMS:%d, NUM_TCK:%ld]\n", usecs, tms, num_tck);
-	fflush(stderr);
 	if (num_tck > 0) {
 		io_tms(tms);
 		while (num_tck > 255) {
@@ -82,8 +100,6 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 			num_tck -= 255;
 		}
 		io_tck((unsigned char)num_tck);
-		fprintf(stderr, "[DELAY_AFTER_TCK:%ld]\n", usecs > 0 ? usecs : 0);
-		fflush(stderr);
 	}
 	if (usecs > 0) { Sleep((usecs + 999) / 1000); }
 }
@@ -99,7 +115,14 @@ static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
 static void h_report_tapstate(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[%s]\n", libxsvf_state2str(h->tap_state));
+	char* message = libxsvf_state2str(h->tap_state);
+	char newmessage[40];
+	memset(newmessage, ' ', sizeof(newmessage) - 1);
+	newmessage[sizeof(newmessage) - 1] = 0;
+	memcpy(newmessage, message, strlen(message));
+	newmessage[strlen(message)] = ']';
+	fprintf(stderr, "[%s  ", newmessage);
+	printshortinfo();
 }
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
@@ -109,12 +132,18 @@ static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 
 	found_devices++;
 	found_idcode = idcode;
+	printshortinfo();
 }
 
 static void h_report_status(struct libxsvf_host* h, const char* message)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[STATUS] %s\n", message);
+	char newmessage[33];
+	memset(newmessage, ' ', sizeof(newmessage) - 1);
+	newmessage[sizeof(newmessage) - 1] = 0;
+	memcpy(newmessage, message, strlen(message));
+	fprintf(stderr, "[STATUS] %s ", newmessage);
+	printshortinfo();
 }
 
 static void h_report_error(struct libxsvf_host* h, const char* file, int line, const char* message)
@@ -137,50 +166,51 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 {
 	struct udata_s* u = h->user_data;
 
+	u->clockcount++;
+	if (tdi >= 0) { u->bitcount_tdi++; }
+
 	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
-		if (tdi <= 0) { u->bitcount_tdi++; }
-		u->clockcount++;
 		tck_queue++;
 		return 1;
 	}
 	else {
 		if (tck_queue > 0) {
-			Gate1ms();
+			Gate();
+			SetGate();
 			flush_tck();
-			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Wait1ms(); }
+			u->sendcount++;
+			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Gate(); }
 		}
 
 		if (tms != tms_old) {
+			if (tdi < 0 || tdi == tdi_old) { SetGate(); }
 			io_tms(tms);
 			tms_old = tms;
 		}
 		if (tdi >= 0) {
-			u->bitcount_tdi++;
 			if (tdi != tdi_old) {
+				SetGate();
 				io_tdi(tdi);
 				tdi_old = tdi;
 			}
 		}
-		if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { SetGateTime(); }
-
-		u->clockcount++;
 
 		if (!sync && tdo < 0) {
 			tck_queue++;
 			return 1;
 		}
 		else {
-			u->bitcount_tdo++;
-			Gate1ms();
+			if (tdo >= 0) { u->bitcount_tdo++; }
+			Gate();
+			SetGate();
 			io_tck(1);
-			Wait1ms();
+			u->sendcount++;
+			Gate();
 			int line_tdo = io_tdo();
 			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 		}
 	}
 }
-
-static struct udata_s u;
 
 static struct libxsvf_host h = {
 	.udelay = h_udelay,
@@ -291,8 +321,8 @@ int main(int argc, char** argv)
 	}
 
 	// Start elapsed time timer
-	Setup1msTicks();
-	LONGLONG start = GetTicksNow();
+	SetupTicks();
+	start = GetTicksNow();
 
 	// Scan JTAG chain
 	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
@@ -309,6 +339,14 @@ int main(int argc, char** argv)
 	// Play update (X)SVF
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
+		printinfo();
+		fflush(stderr);
+		fprintf(stderr, "Programming FAILED.\n");
+	}
+	else {
+		printinfo();
+		fflush(stderr);
+		fprintf(stderr, "Programming SUCCESSFUL.\n");
 	}
 
 	LONGLONG end = GetTicksNow() - start;

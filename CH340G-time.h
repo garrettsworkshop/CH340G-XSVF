@@ -7,11 +7,13 @@
 #ifndef _CH340G_TIME_H
 #define _CH340G_TIME_H
 
+LONGLONG ticks_per_gate;
 LONGLONG ticks_per_ms;
-static void Setup1msTicks() {
+static void SetupTicks() {
 	LARGE_INTEGER ticks_per_sec;
 	QueryPerformanceFrequency(&ticks_per_sec);
 	ticks_per_ms = (ticks_per_sec.QuadPart + 999) / 1000;
+	ticks_per_gate = ticks_per_sec.QuadPart / 1500;
 }
 
 static LONGLONG GetTicksNow() {
@@ -22,17 +24,17 @@ static LONGLONG GetTicksNow() {
 
 LONGLONG last;
 char last_set = 0;
-static void SetGateTime() {
+static void SetGate() {
 	last = GetTicksNow();
 }
-static void Gate1ms() {
-	if (!last_set) { SetGateTime(); }
-	LONGLONG end = last + ticks_per_ms + 1;
+static void Gate() {
+	if (!last_set) { SetGate(); }
+	LONGLONG end = last + ticks_per_gate;
 	do { last = GetTicksNow(); } while (last < end);
 }
 
-static void Wait1ms() {
-	LONGLONG end = GetTicksNow() + ticks_per_ms + 1;
+static void Wait() {
+	LONGLONG end = GetTicksNow() + ticks_per_gate;
 	while (GetTicksNow() < end);
 }
 

@@ -240,8 +240,8 @@ static void copyleft()
 	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n");
 }
 
-#define STRBUF_SIZE (68 * 1024)
-char strbuf[STRBUF_SIZE + 1];
+#define STRBUF_SIZE (64 * 1024)
+char strbuf[STRBUF_SIZE];
 
 int main(int argc, char** argv)
 {
@@ -250,14 +250,21 @@ int main(int argc, char** argv)
 
 	copyleft();
 
-	if (argc != 1) {
+	// Check for correct number of arguments
+	if (argc != 1 && argc != 2) {
 		fprintf(stderr, "Error! Bad arguments.\n");
 		return quit(-1);
 	}
 
-	u.f = fopen(argv[0], "rb");
+	// Open data file
+	u.f = fopen(argv[argc - 1], "rb");
 	if (!u.f) {
-		fprintf(stderr, "Error! Failed to open GWUpdate executable as data file.\n");
+		if (argc == 1) {
+			fprintf(stderr, "Error! Failed to open GWUpdate executable as data file.\n");
+		}
+		else if (argc == 2) {
+			fprintf(stderr, "Error! Failed to open update data file.\n");
+		}
 		return quit(-1);
 	}
 

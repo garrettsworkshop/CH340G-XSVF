@@ -262,7 +262,7 @@ int main(int argc, char** argv)
 #ifndef _DEBUG
 	u.f = fopen(argv[argc - 1], "rb");
 #else
-	u.f = fopen(argv[argc - 1], "update.xsvf");
+	u.f = fopen("update.xsvf", "rb");
 #endif
 
 #ifndef _DEBUG
@@ -341,22 +341,42 @@ int main(int argc, char** argv)
 	expected_idcode = 0x12345678; // Altera EPM7128S "Altera97"
 #endif
 
-	// Print instructions text from update file
+	// Print first instructions text from update file
 #ifndef _DEBUG
 	if (!fgets(strbuf, STRBUF_SIZE, u.f)) { // Read instructions string into buffer
-		fprintf(stderr, "Error! Failed to read update instructions from file.\n");
+		fprintf(stderr, "Error! Failed to read update instructions (#1) from file.\n");
 		return quit(-1);
 	}
-	if (!fputs(stderr, strbuf)) { // Display instructions
-		fprintf(stderr, "Error! Failed to display update instructions.\n");
+	if (!fputs(strbuf, stderr)) { // Display instructions
+		fprintf(stderr, "Error! Failed to display update instructions (#1).\n");
 		return quit(-1);
 	}
 #else
-	fputs(stderr, "<instructions>\n");
+	fputs("<instructions1>\n", stderr);
 #endif
 
+	getchar();
+
+	comsearch(portname);
+
+	// Print second instructions text from update file
+#ifndef _DEBUG
+	if (!fgets(strbuf, STRBUF_SIZE, u.f)) { // Read instructions string into buffer
+		fprintf(stderr, "Error! Failed to read update instructions (#2) from file.\n");
+		return quit(-1);
+	}
+	if (!fputs(strbuf, stderr)) { // Display instructions
+		fprintf(stderr, "Error! Failed to display update instructions (#2).\n");
+		return quit(-1);
+	}
+#else
+	fputs("<instructions2>\n", stderr);
+#endif
+
+	getchar();
+
 	// Find COM port
-	if ((portnum = comsearch(portname)) > 0) {
+	if ((portnum = compick(portname)) <= 0) {
 		fprintf(stderr, "Error! Could not find USB device.\n");
 		return quit(-1);
 	}
@@ -381,12 +401,11 @@ int main(int argc, char** argv)
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
 		printinfo();
-		fflush(stderr);
 		fprintf(stderr, "Programming FAILED.\n");
+		return quit(-1);
 	}
 	else {
 		printinfo();
-		fflush(stderr);
 		fprintf(stderr, "Programming SUCCESSFUL.\n");
 	}
 

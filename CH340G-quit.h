@@ -9,6 +9,7 @@
 
 static int quit(int code) {
 	fprintf(stderr, "Press enter to quit.\n");
+	fflush(stderr);
 	getchar();
 	exit(code);
 	return code;

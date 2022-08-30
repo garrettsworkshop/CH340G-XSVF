@@ -1,4 +1,6 @@
 /*
+ *  GWUpdate
+ *  based on...
  *  Lib(X)SVF  -  A library for implementing SVF and XSVF JTAG players
  *
  *  Copyright (C) 2009  RIEGL Research ForschungsGmbH
@@ -35,6 +37,7 @@ uint8_t expected_devices;
 uint32_t expected_idcode;
 uint8_t found_devices;
 uint32_t found_idcode;
+uint32_t expected_bits;
 
 struct udata_s {
 	FILE* f;
@@ -115,7 +118,7 @@ static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
 static void h_report_tapstate(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	char* message = libxsvf_state2str(h->tap_state);
+	const char* message = libxsvf_state2str(h->tap_state);
 	char newmessage[40];
 	memset(newmessage, ' ', sizeof(newmessage) - 1);
 	newmessage[sizeof(newmessage) - 1] = 0;
@@ -172,8 +175,7 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
 		tck_queue++;
 		return 1;
-	}
-	else {
+	} else {
 		if (tck_queue > 0) {
 			Gate();
 			SetGate();
@@ -251,24 +253,37 @@ int main(int argc, char** argv)
 	copyleft();
 
 	// Check for correct number of arguments
-	if (argc != 1 && argc != 2) {
+	if (argc != 1 /*&& argc != 2*/) {
 		fprintf(stderr, "Error! Bad arguments.\n");
 		return quit(-1);
 	}
 
 	// Open data file
+#ifndef _DEBUG
 	u.f = fopen(argv[argc - 1], "rb");
+#else
+	u.f = fopen(argv[argc - 1], "update.xsvf");
+#endif
+
+#ifndef _DEBUG
 	if (!u.f) {
 		if (argc == 1) {
 			fprintf(stderr, "Error! Failed to open GWUpdate executable as data file.\n");
 		}
-		else if (argc == 2) {
+		/*else if (argc == 2) {
 			fprintf(stderr, "Error! Failed to open update data file.\n");
-		}
+		}*/
 		return quit(-1);
 	}
+#else
+	if (!u.f) {
+		fprintf(stderr, "Error! Failed to open update data file.\n");
+		return quit(-1);
+	}
+#endif
 
 	// Find XSVF data
+#ifndef _DEBUG
 	mode = LIBXSVF_MODE_SVF; // Default to SVF mode
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
 		char c;
@@ -281,45 +296,64 @@ int main(int argc, char** argv)
 			return quit(-1);
 		}
 		
-		c = getchar(u.f);
+		c = fgetc(u.f);
 		if (c == 'X') { // First 'X'
 			mode = LIBXSVF_MODE_XSVF;
 			// Then 'S', else try next 128k
-			if (getchar(u.f) != 'S') { break; }
+			if (fgetc(u.f) != 'S') { break; }
 		}
 		else if (c != 'S') { break; } // First 'S'
 
 		// Then 'V', then 'F', else try next 128k
-		if (getchar(u.f) != 'V') { break; }
-		if (getchar(u.f) != 'F') { break; }
+		if (fgetc(u.f) != 'V') { break; }
+		if (fgetc(u.f) != 'F') { break; }
 	}
+#else
+	mode = LIBXSVF_MODE_SVF; // XSVF mode during debug
+#endif
+
+	// Get expected bit count from update file
+#ifndef _DEBUG
+	fread(&expected_bits, sizeof(uint32_t), 1, u.f);
+#else
+	expected_bits = 72000; // Expected bit count for Altera EPM7128S
+#endif
 
 	// Ensure update file indicates only one device on JTAG chain
+#ifndef _DEBUG
 	if (expected_devices = fgetc(u.f) != 1) { // So check next char == 1
 		fprintf(stderr, "Error! Update file has multiple devices on JTAG chain but GWUpdate only supports one device.\n");
 		return quit(-1);
 	}
+#else
+	expected_devices = 1;
+#endif
 	found_devices = 0;
 
-	// Read single expected IDCODE
+
+	// Read single expected IDCODE from update file
+#ifndef _DEBUG
 	if (fread(&expected_idcode, sizeof(uint32_t), 1, u.f) != 1) { // Couldn't read idcode
 		fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
 		return quit(-1);
 	}
+#else
+	expected_idcode = 0x12345678; // Altera EPM7128S "Altera97"
+#endif
 
-	// Print instructions following (X)SVF flag.
-	if (!strbuf) { // Malloc fail
-		fprintf(stderr, "Error! Failed to allocate string buffer.\n");
-		return quit(-1);
-	}
+	// Print instructions text from update file
+#ifndef _DEBUG
 	if (!fgets(strbuf, STRBUF_SIZE, u.f)) { // Read instructions string into buffer
 		fprintf(stderr, "Error! Failed to read update instructions from file.\n");
 		return quit(-1);
 	}
-	if (!puts(strbuf)) { // Display instructions
+	if (!fputs(stderr, strbuf)) { // Display instructions
 		fprintf(stderr, "Error! Failed to display update instructions.\n");
 		return quit(-1);
 	}
+#else
+	fputs(stderr, "<instructions>\n");
+#endif
 
 	// Find COM port
 	if ((portnum = comsearch(portname)) > 0) {

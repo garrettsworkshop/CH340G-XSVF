@@ -113,6 +113,14 @@ static void io_setup(void)
 	dcb.Parity = NOPARITY;
 	dcb.StopBits = ONESTOPBIT;
 	if (!SetCommState(serialport, &dcb)) { goto error; }
+
+	if (!EscapeCommFunction(serialport, CLRBREAK)) { goto error; }
+	Sleep(10);
+	if (!EscapeCommFunction(serialport, SETBREAK)) { goto error; }
+	Sleep(10);
+	if (!EscapeCommFunction(serialport, CLRBREAK)) { goto error; }
+	Sleep(10);
+
 	return;
 
 error:

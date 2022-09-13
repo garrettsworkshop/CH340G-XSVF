@@ -1,0 +1,10 @@
+On 128 kB boundary < 65,536 kB:
+
+Offset	What								Length	Notes
+0000		"XSVF" or " SVF"				4		Only XSVF supported
+0004		expected bit count				4
+0008		num. devices on JTAG chain		4		Must be 1
+000C		JTAG IDCODE of single device	4		Variable length in principle but only 1 supported
+0010		Instructions 1					var		Null-terminated string
+next		Instructions 2					var		Null-terminated string
+next		(X)SVF file						var		Only XSVF supported

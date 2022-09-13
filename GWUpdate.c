@@ -33,9 +33,9 @@
 #include "CH340G-time.h"
 #include "CH340G-quit.h"
 
-uint8_t expected_devices;
+uint32_t expected_devices;
 uint32_t expected_idcode;
-uint8_t found_devices;
+uint32_t found_devices;
 uint32_t found_idcode;
 uint32_t expected_bits;
 
@@ -233,13 +233,26 @@ static struct libxsvf_host h = {
 
 static void copyleft()
 {
-	fprintf(stderr, "GWUpdate\n");
+	fprintf(stderr,
+		"   ____                          _    _    _        __        __            _          _                   \n"
+		"  / ___|  __ _  _ __  _ __  ___ | |_ | |_ ( )___    \\ \\      / /___   _ __ | | __ ___ | |__    ___   _ __   \n"
+		" | |  _  / _` || '__|| '__|/ _ \\| __|| __||// __|    \\ \\ /\\ / // _ \\ | '__|| |/ // __|| '_ \\  / _ \\ | '_ \\  \n"
+		" | |_| || (_| || |   | |  |  __/| |_ | |_   \\__ \\     \\ V  V /| (_) || |   |   < \\__ \\| | | || (_) || |_) | \n"
+		"  \\____| \\__,_||_|   |_|   \\___| \\__| \\__|  |___/      \\_/\\_/  \\___/ |_|   |_|\\_\\|___/|_| |_| \\___/ |  __/  \n"
+		"                    _   _           _       _         ____            _                             |_|    \n"
+		"                   | | | |_ __   __| | __ _| |_ ___  / ___| _   _ ___| |_ ___ _ __ ___  \n"
+		"                   | | | | '_ \\ / _` |/ _` | __/ _ \\ \\___ \\| | | / __| __/ _ \\ '_ ` _ \\ \n"
+		"                   | |_| | |_) | (_| | (_| | ||  __/  ___) | |_| \\__ \\ ||  __/ | | | | | \n"
+		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
+		"                         |_|                                |___/                       \n");
 	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
+	Sleep(1500);
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
-	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n");
+	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n\n");
+	Sleep(2000);
 }
 
 #define STRBUF_SIZE (64 * 1024)
@@ -253,82 +266,89 @@ int main(int argc, char** argv)
 	copyleft();
 
 	// Check for correct number of arguments
-	if (argc != 1 /*&& argc != 2*/) {
+	if (argc != 1) {
 		fprintf(stderr, "Error! Bad arguments.\n");
 		return quit(-1);
 	}
 
 	// Open data file
 #ifndef _DEBUG
-	u.f = fopen(argv[argc - 1], "rb");
+	u.f = fopen(argv[0], "rb");
 #else
 	u.f = fopen("update.xsvf", "rb");
 #endif
 
+	if (argc != 1) {
+		fprintf(stderr, "Error! Bad invocation of GWUpdate command.\n");
+		return quit(-1);
+	}
+
+	if (!u.f) {
+		fprintf(stderr,
 #ifndef _DEBUG
-	if (!u.f) {
-		if (argc == 1) {
-			fprintf(stderr, "Error! Failed to open GWUpdate executable as data file.\n");
-		}
-		/*else if (argc == 2) {
-			fprintf(stderr, "Error! Failed to open update data file.\n");
-		}*/
-		return quit(-1);
-	}
+			"Error! Failed to open GWUpdate executable as data file."
 #else
-	if (!u.f) {
-		fprintf(stderr, "Error! Failed to open update data file.\n");
+			"Error! Failed to open update data file."
+#endif
+			"\n");
 		return quit(-1);
 	}
-#endif
 
 	// Find XSVF data
 #ifndef _DEBUG
-	mode = LIBXSVF_MODE_SVF; // Default to SVF mode
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
-		char c;
-		if (i > 20) { // Looked too many times fail
+		if (i > 255) { // Looked too many times fail
 			fprintf(stderr, "Error! (X)SVF flag not found.\n");
 			return quit(-1);
 		}
-		if (fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
+		if (!fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
 			fprintf(stderr, "Error! Seeked past end of file looking for (X)SVF flag.\n");
 			return quit(-1);
 		}
-		
-		c = fgetc(u.f);
-		if (c == 'X') { // First 'X'
-			mode = LIBXSVF_MODE_XSVF;
-			// Then 'S', else try next 128k
-			if (fgetc(u.f) != 'S') { break; }
-		}
-		else if (c != 'S') { break; } // First 'S'
 
-		// Then 'V', then 'F', else try next 128k
-		if (fgetc(u.f) != 'V') { break; }
-		if (fgetc(u.f) != 'F') { break; }
+		// Check for flag
+		char c = fgetc(u.f);
+		if (c == 'X') { mode = LIBXSVF_MODE_XSVF; } // First 'X' for XSVF
+		else if (c == ' ') { mode = LIBXSVF_MODE_SVF; } // First ' ' for SVF
+		else { continue; } // If neither try next 128k
+		// Then 'S', 'V', 'F', else try next 128k
+		if (fgetc(u.f) != 'S') { continue; }
+		if (fgetc(u.f) != 'V') { continue; }
+		if (fgetc(u.f) != 'F') { continue; }
 	}
 #else
-	mode = LIBXSVF_MODE_SVF; // XSVF mode during debug
+	mode = LIBXSVF_MODE_XSVF; // XSVF mode during debug
 #endif
 
 	// Get expected bit count from update file
 #ifndef _DEBUG
-	fread(&expected_bits, sizeof(uint32_t), 1, u.f);
+	if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {
+		fprintf(stderr, "Error! Could not read expected bit count from update file.\n");
+		return quit(-1);
+	}
 #else
 	expected_bits = 72000; // Expected bit count for Altera EPM7128S
 #endif
 
 	// Ensure update file indicates only one device on JTAG chain
 #ifndef _DEBUG
-	if (expected_devices = fgetc(u.f) != 1) { // So check next char == 1
+	if (!fread(&expected_devices, sizeof(uint32_t), 1, u.f)) {
+		fprintf(stderr, "Error! Could not read JTAG device count from update file.\n");
+		return quit(-1);
+	}
+	// Only supporting one device on chain...
+	if (expected_devices > 1) {
 		fprintf(stderr, "Error! Update file has multiple devices on JTAG chain but GWUpdate only supports one device.\n");
+		return quit(-1);
+	}
+	else if (expected_devices == 0) {
+		fprintf(stderr, "Error! Update file has no devices on JTAG chain.\n");
 		return quit(-1);
 	}
 #else
 	expected_devices = 1;
 #endif
-	found_devices = 0;
+	found_devices = 0; // Reset found devices
 
 
 	// Read single expected IDCODE from update file

@@ -246,13 +246,17 @@ static void copyleft()
 		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
 		"                         |_|                                |___/                       \n");
 	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
+#ifndef _DEBUG
 	Sleep(1500);
+#endif
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
 	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n\n");
+#ifndef _DEBUG
 	Sleep(2000);
+#endif
 }
 
 #define STRBUF_SIZE (64 * 1024)
@@ -275,13 +279,8 @@ int main(int argc, char** argv)
 #ifndef _DEBUG
 	u.f = fopen(argv[0], "rb");
 #else
-	u.f = fopen("update.xsvf", "rb");
+	u.f = fopen("REU_impl1_XFLASH_CFG_ERASE_PROG.xsvf", "rb");
 #endif
-
-	if (argc != 1) {
-		fprintf(stderr, "Error! Bad invocation of GWUpdate command.\n");
-		return quit(-1);
-	}
 
 	if (!u.f) {
 		fprintf(stderr,
@@ -358,7 +357,7 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 #else
-	expected_idcode = 0x12345678; // Altera EPM7128S "Altera97"
+	expected_idcode = 0x071280dd; // Altera EPM7128S "Altera97"
 #endif
 
 	// Print first instructions text from update file
@@ -406,7 +405,7 @@ int main(int argc, char** argv)
 	start = GetTicksNow();
 
 	// Scan JTAG chain
-	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
+	/*if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error! Failed to scan JTAG chain.\n");
 		return quit(-1);
 	}
@@ -414,11 +413,11 @@ int main(int argc, char** argv)
 	// Check for expected IDCODE
 	if (expected_idcode != found_idcode) {
 		fprintf(stderr, "Error! Incorrect device found on JTAG chain.\n");
-		return quit(-1);
-	}
+		//return quit(-1);
+	}*/
 
 	// Play update (X)SVF
-	if (libxsvf_play(&h, mode) < 0) {
+	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
 		printinfo();
 		fprintf(stderr, "Programming FAILED.\n");

@@ -1,0 +1,15 @@
+
+
+! Lattice Semiconductor Corp.
+! Serial Vector Format (.SVF) File.
+! User information:
+! File name: C:\Users\garre\Repos\CH340G-XSVF\EraseLCMXO2-640.svf
+! CREATED BY:    Diamond Deployment Tool 3.12
+! CREATION DATE: Tue Sep 13 18:20:35 2022
+! Device: LCMXO2-640HC  FLASH Erase Only C:/Users/garre/Repos/GW4302/cpld/impl1/REU_impl1.jed
+! LATTICE_NOTE "Device" "LCMXO2-640HC"
+! LATTICE_NOTE "Checksum" "8D83"
+! SVF Revision D Format
+! SVF Revision C Format
+! TCK Frequency = 1MHz
+	

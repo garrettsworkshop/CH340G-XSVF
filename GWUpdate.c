@@ -38,6 +38,7 @@ uint32_t expected_idcode;
 uint32_t found_devices;
 uint32_t found_idcode;
 uint32_t expected_bits;
+enum libxsvf_mode cur_mode;
 
 struct udata_s {
 	FILE* f;
@@ -52,18 +53,22 @@ LONGLONG start = 0;
 void printinfo() {
 	LONGLONG end = GetTicksNow() - start;
 	double elapsed = (double)end / ticks_per_ms / 1000.0f;
+	fprintf(stderr, "\n");
 	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
 	fprintf(stderr, "Number of significant TDI bits: %d\n", u.bitcount_tdi);
 	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
 	fprintf(stderr, "Number of TCK pulsetrains: %d\n", u.sendcount);
 	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
-	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);	
+	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
+	fprintf(stderr, "\n");
 }
 void printshortinfo() {
-	LONGLONG end = GetTicksNow() - start;
-	double elapsed = (double)end / ticks_per_ms / 1000.0f;
-	fprintf(stderr, "Bits: %d\tTime: %lf sec.\tSpeed: %lf b/sec.\n",
-		u.clockcount, elapsed, (double)u.clockcount / elapsed);
+	if (cur_mode != LIBXSVF_MODE_SCAN) {
+		LONGLONG end = GetTicksNow() - start;
+		double elapsed = (double)end / ticks_per_ms / 1000.0f;
+		fprintf(stderr, "\033[1AUpdate in progress...        Bits: %7d        Time: %5.1f sec.        Speed: %5.1f b/sec.\n",
+			u.clockcount, elapsed, (double)u.clockcount / elapsed);
+	}
 }
 
 unsigned char tck_queue = 0;
@@ -76,7 +81,7 @@ static void flush_tck() {
 static int h_setup(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[SETUP]\n");
+	fprintf(stderr, "Opening JTAG connection...\n");
 	fflush(stderr);
 	tck_queue = 0;
 	io_setup();
@@ -86,7 +91,9 @@ static int h_setup(struct libxsvf_host* h)
 static int h_shutdown(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "[SHUTDOWN]\n");
+	if (cur_mode != LIBXSVF_MODE_SCAN) {
+		fprintf(stderr, "Closing JTAG connection...\n");
+	}
 	fflush(stderr);
 	flush_tck();
 	io_shutdown();
@@ -124,7 +131,7 @@ static void h_report_tapstate(struct libxsvf_host* h)
 	newmessage[sizeof(newmessage) - 1] = 0;
 	memcpy(newmessage, message, strlen(message));
 	newmessage[strlen(message)] = ']';
-	fprintf(stderr, "[%s  ", newmessage);
+	//fprintf(stderr, "[%s  ", newmessage);
 	printshortinfo();
 }
 
@@ -144,8 +151,13 @@ static void h_report_status(struct libxsvf_host* h, const char* message)
 	char newmessage[33];
 	memset(newmessage, ' ', sizeof(newmessage) - 1);
 	newmessage[sizeof(newmessage) - 1] = 0;
-	memcpy(newmessage, message, strlen(message));
-	fprintf(stderr, "[STATUS] %s ", newmessage);
+	if (strlen(message) < 33) {
+		memcpy(newmessage, message, strlen(message));
+		//fprintf(stderr, "[STATUS] %s ", newmessage);
+	}
+	else {
+		//fprintf(stderr, "[STATUS] %s ", message);
+	}
 	printshortinfo();
 }
 
@@ -180,6 +192,8 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 			Gate();
 			SetGate();
 			flush_tck();
+			SetGate();
+			Gate();
 			u->sendcount++;
 			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Gate(); }
 		}
@@ -279,7 +293,7 @@ int main(int argc, char** argv)
 #ifndef _DEBUG
 	u.f = fopen(argv[0], "rb");
 #else
-	u.f = fopen("REU_impl1_XFLASH_CFG_ERASE_PROG.xsvf", "rb");
+	u.f = fopen("update.svf", "rb");
 #endif
 
 	if (!u.f) {
@@ -316,7 +330,7 @@ int main(int argc, char** argv)
 		if (fgetc(u.f) != 'F') { continue; }
 	}
 #else
-	mode = LIBXSVF_MODE_XSVF; // XSVF mode during debug
+	mode = LIBXSVF_MODE_SVF; // XSVF mode during debug
 #endif
 
 	// Get expected bit count from update file
@@ -405,7 +419,8 @@ int main(int argc, char** argv)
 	start = GetTicksNow();
 
 	// Scan JTAG chain
-	/*if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
+	cur_mode = LIBXSVF_MODE_SCAN;
+	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 		fprintf(stderr, "Error! Failed to scan JTAG chain.\n");
 		return quit(-1);
 	}
@@ -413,19 +428,24 @@ int main(int argc, char** argv)
 	// Check for expected IDCODE
 	if (expected_idcode != found_idcode) {
 		fprintf(stderr, "Error! Incorrect device found on JTAG chain.\n");
-		//return quit(-1);
-	}*/
+		return quit(-1);
+	}
 
 	// Play update (X)SVF
-	if (libxsvf_play(&h, LIBXSVF_MODE_XSVF) < 0) {
+	cur_mode = mode;
+	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
 		printinfo();
-		fprintf(stderr, "Programming FAILED.\n");
+		fprintf(stderr, "----------------------\n");
+		fprintf(stderr, "| Programming FAILED |\n");
+		fprintf(stderr, "----------------------\n");
 		return quit(-1);
 	}
 	else {
 		printinfo();
-		fprintf(stderr, "Programming SUCCESSFUL.\n");
+		fprintf(stderr, "--------------------------\n");
+		fprintf(stderr, "| Programming SUCCESSFUL |\n");
+		fprintf(stderr, "--------------------------\n");
 	}
 
 	LONGLONG end = GetTicksNow() - start;
@@ -434,11 +454,5 @@ int main(int argc, char** argv)
 	// Close file
 	fclose(u.f);
 
-	fprintf(stderr, "Done.\n");
-	fprintf(stderr, "Total number of clock cycles: %d\n", u.clockcount);
-	fprintf(stderr, "Number of significant TDI bits: %d\n", u.bitcount_tdi);
-	fprintf(stderr, "Number of significant TDO bits: %d\n", u.bitcount_tdo);
-	fprintf(stderr, "Time elapsed: %lf sec.\n", elapsed);
-	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
 	return quit(0);
 }

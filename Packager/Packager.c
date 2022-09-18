@@ -92,7 +92,7 @@ int main(int argc, char** argv)
 		gwupdate_name = "../x64/Release/GWUpdate.exe";
 		out_name = "GWUpdate_out.exe";
 	}
-	else if (argc == 6) {
+	else if (argc == 8) {
 		expected_bits = strtol(argv[1], NULL, 10);
 		idcode = strtol(argv[2], NULL, 16);
 		inst1 = argv[3];

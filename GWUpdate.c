@@ -66,7 +66,7 @@ void printshortinfo() {
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
 		LONGLONG end = GetTicksNow() - start;
 		double elapsed = (double)end / ticks_per_ms / 1000.0f;
-		fprintf(stderr, "\033[1AUpdate in progress...        Bits: %7d        Time: %5.1f sec.        Speed: %5.1f b/sec.\n",
+		fprintf(stderr, "\033[1A\033[KUpdate in progress...        Bits: %7d        Time: %5.1f sec.        Speed: %5.1f b/sec.\n",
 			u.clockcount, elapsed, (double)u.clockcount / elapsed);
 	}
 }
@@ -80,9 +80,13 @@ static void flush_tck() {
 
 static int h_setup(struct libxsvf_host* h)
 {
+	static char printed = 0;
 	struct udata_s* u = h->user_data;
-	fprintf(stderr, "Opening JTAG connection...\n");
-	fflush(stderr);
+	if (!printed) {
+		fprintf(stderr, "Opening JTAG connection...\n\n");
+		fflush(stderr);
+		printed = 1;
+	}
 	tck_queue = 0;
 	io_setup();
 	return 0;
@@ -92,7 +96,7 @@ static int h_shutdown(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
-		fprintf(stderr, "Closing JTAG connection...\n");
+		fprintf(stderr, "Closing JTAG connection...\n\n");
 	}
 	fflush(stderr);
 	flush_tck();
@@ -117,7 +121,8 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 static int h_getbyte(struct libxsvf_host* h)
 {
 	struct udata_s* u = h->user_data;
-	return fgetc(u->f);
+	char c = fgetc(u->f);
+	return c;
 }
 
 static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
@@ -163,7 +168,7 @@ static void h_report_status(struct libxsvf_host* h, const char* message)
 
 static void h_report_error(struct libxsvf_host* h, const char* file, int line, const char* message)
 {
-	fprintf(stderr, "[%s:%d] %s\n", file, line, message);
+	fprintf(stderr, "[%s:%d] %s\n\n", file, line, message);
 }
 
 static int realloc_maxsize[LIBXSVF_MEM_NUM];
@@ -268,9 +273,17 @@ static void copyleft()
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
 	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n\n");
+	fprintf(stderr, "Loading");
 #ifndef _DEBUG
-	Sleep(2000);
+	for (int i = 0; i < 10; i++) {
+		fputc('.', stderr);
+		Sleep(500);
+	}
 #endif
+	fputc('\n', stderr);
+	for (int i = 0; i < 9; i++) { fprintf(stderr, "\033[0K\033[1A"); }
+	fputc('\n', stderr);
+	fputc('\n', stderr);
 }
 
 #define STRBUF_SIZE (64 * 1024)
@@ -290,15 +303,15 @@ int main(int argc, char** argv)
 	}
 
 	// Open data file
-#ifndef _DEBUG
-	u.f = fopen(argv[0], "rb");
+#ifndef GWDEBUG
+	u.f = fopen("Packager\\GWUpdate_out.exe", "rb");
 #else
 	u.f = fopen("update.svf", "rb");
 #endif
 
 	if (!u.f) {
 		fprintf(stderr,
-#ifndef _DEBUG
+#ifndef GWDEBUG
 			"Error! Failed to open GWUpdate executable as data file."
 #else
 			"Error! Failed to open update data file."
@@ -308,13 +321,13 @@ int main(int argc, char** argv)
 	}
 
 	// Find XSVF data
-#ifndef _DEBUG
+#ifndef GWDEBUG
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
 		if (i > 255) { // Looked too many times fail
 			fprintf(stderr, "Error! (X)SVF flag not found.\n");
 			return quit(-1);
 		}
-		if (!fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
+		if (fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
 			fprintf(stderr, "Error! Seeked past end of file looking for (X)SVF flag.\n");
 			return quit(-1);
 		}
@@ -328,13 +341,14 @@ int main(int argc, char** argv)
 		if (fgetc(u.f) != 'S') { continue; }
 		if (fgetc(u.f) != 'V') { continue; }
 		if (fgetc(u.f) != 'F') { continue; }
+		break;
 	}
 #else
 	mode = LIBXSVF_MODE_SVF; // XSVF mode during debug
 #endif
 
 	// Get expected bit count from update file
-#ifndef _DEBUG
+#ifndef GWDEBUG
 	if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {
 		fprintf(stderr, "Error! Could not read expected bit count from update file.\n");
 		return quit(-1);
@@ -344,7 +358,7 @@ int main(int argc, char** argv)
 #endif
 
 	// Ensure update file indicates only one device on JTAG chain
-#ifndef _DEBUG
+#ifndef GWDEBUG
 	if (!fread(&expected_devices, sizeof(uint32_t), 1, u.f)) {
 		fprintf(stderr, "Error! Could not read JTAG device count from update file.\n");
 		return quit(-1);
@@ -365,7 +379,7 @@ int main(int argc, char** argv)
 
 
 	// Read single expected IDCODE from update file
-#ifndef _DEBUG
+#ifndef GWDEBUG
 	if (fread(&expected_idcode, sizeof(uint32_t), 1, u.f) != 1) { // Couldn't read idcode
 		fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
 		return quit(-1);
@@ -375,14 +389,11 @@ int main(int argc, char** argv)
 #endif
 
 	// Print first instructions text from update file
-#ifndef _DEBUG
-	if (!fgets(strbuf, STRBUF_SIZE, u.f)) { // Read instructions string into buffer
-		fprintf(stderr, "Error! Failed to read update instructions (#1) from file.\n");
-		return quit(-1);
-	}
-	if (!fputs(strbuf, stderr)) { // Display instructions
-		fprintf(stderr, "Error! Failed to display update instructions (#1).\n");
-		return quit(-1);
+#ifndef GWDEBUG
+	while (1) {
+		int c = fgetc(u.f);
+		if (c == EOF || c == 0) { break; }
+		else { fputc(c, stderr); }
 	}
 #else
 	fputs("<instructions1>\n", stderr);
@@ -393,14 +404,11 @@ int main(int argc, char** argv)
 	comsearch(portname);
 
 	// Print second instructions text from update file
-#ifndef _DEBUG
-	if (!fgets(strbuf, STRBUF_SIZE, u.f)) { // Read instructions string into buffer
-		fprintf(stderr, "Error! Failed to read update instructions (#2) from file.\n");
-		return quit(-1);
-	}
-	if (!fputs(strbuf, stderr)) { // Display instructions
-		fprintf(stderr, "Error! Failed to display update instructions (#2).\n");
-		return quit(-1);
+#ifndef GWDEBUG
+	while (1) {
+		int c = fgetc(u.f);
+		if (c == EOF || c == 0) { break; }
+		else { fputc(c, stderr); }
 	}
 #else
 	fputs("<instructions2>\n", stderr);
@@ -432,6 +440,7 @@ int main(int argc, char** argv)
 	}
 
 	// Play update (X)SVF
+	fputc('\n', stderr);
 	cur_mode = mode;
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");

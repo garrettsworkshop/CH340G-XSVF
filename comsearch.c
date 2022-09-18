@@ -78,13 +78,14 @@ int compick(char* portname) {
 		// because the COM ports have changed too much since comsearch().
 		else if (!exists && com_found[i]) { return 0; }
 	}
+	if (found == 0) { return 0; } // Fail if nothing found
 
 	Sleep(1000); // Wait 1000 milliseconds.
 
 	// If we found something, check to make sure it still exists.
 	// Also pass portname to comexists so the portname is written back.
 	// Then return the number of the COM port.
-	if (found != 0 && comexists(found, portname)) { return found; }
+	if (comexists(found, portname)) { return found; }
 	// Otherwise if nothing found or it disappeared, return 0.
 	else { return 0; }
 }

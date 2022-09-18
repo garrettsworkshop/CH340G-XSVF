@@ -1,0 +1,127 @@
+
+
+! Lattice Semiconductor Corp.
+! Serial Vector Format (.SVF) File.
+! User information:
+! File name: C:\Users\garre\Repos\CH340G-XSVF\EraseLCMXO2-640.svf
+! CREATED BY:    Diamond Deployment Tool 3.12
+! CREATION DATE: Tue Sep 13 18:20:35 2022
+! Device: LCMXO2-640HC  FLASH Erase Only C:/Users/garre/Repos/GW4302/cpld/impl1/REU_impl1.jed
+! LATTICE_NOTE "Device" "LCMXO2-640HC"
+! LATTICE_NOTE "Checksum" "8D83"
+! SVF Revision D Format
+! SVF Revision C Format
+! TCK Frequency = 1MHz
+
+STATE	RESET;
+
+
+! Initialize
+
+! Row_Width	  :888
+! Address_Length :215
+HDR	0;
+HIR	0;
+TDR	0;
+TIR	0;
+ENDDR	DRPAUSE;
+ENDIR	IRPAUSE;
+STATE	IDLE;
+
+
+! Check the IDCODE
+
+! Shift in IDCODE_PUB(0xE0) instruction
+SIR	8	TDI  (E0);
+SDR	32	TDI  (00000000)
+		TDO  (012B9043)
+		MASK (FFFFFFFF);
+
+
+! Program Bscan register
+
+! Shift in Preload(0x1C) instruction
+SIR	8	TDI  (1C);
+SDR	152	TDI  (FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+
+
+! Check the Key Protection fuses
+
+! Shift in LSC_READ_STATUS(0x3C) instruction
+SIR	8	TDI  (3C);
+! wait 1.00e-003 SEC
+RUNTEST	IDLE	1002 TCK;
+SDR	32	TDI  (00000000)
+		TDO  (00000000)
+		MASK (00000020);
+
+
+! Enable the Flash
+
+! Shift in ISC ENABLE(0xC6) instruction
+SIR	8	TDI  (C6);
+SDR	8	TDI  (00);
+! wait 1.00e-003 SEC
+RUNTEST	IDLE	1002 TCK;
+! Shift in ISC ERASE(0x0E) instruction
+SIR	8	TDI  (0E);
+SDR	8	TDI  (01);
+! wait 1.00e+000 SEC
+RUNTEST	IDLE	1000002 TCK;
+! Shift in BYPASS(0xFF) instruction
+SIR	8	TDI  (FF)
+		TDO  (00)
+		MASK (C0);
+! Shift in ISC ENABLE(0xC6) instruction
+SIR	8	TDI  (C6);
+SDR	8	TDI  (08);
+! wait 1.00e-003 SEC
+RUNTEST	IDLE	1002 TCK;
+
+
+! Check the OTP fuses
+
+! Shift in LSC_READ_STATUS(0x3C) instruction
+SIR	8	TDI  (3C);
+! wait 1.00e-003 SEC
+RUNTEST	IDLE	1002 TCK;
+SDR	32	TDI  (00000000)
+		TDO  (00000000)
+		MASK (00024040);
+
+
+! Erase the Flash
+
+! Shift in ISC ERASE(0x0E) instruction
+SIR	8	TDI  (0E);
+SDR	8	TDI  (0E);
+! wait 1.20e+001 SEC
+RUNTEST	IDLE	12000002 TCK;
+! Shift in LSC_CHECK_BUSY(0xF0) instruction
+SIR	8	TDI  (F0);
+SDR	1	TDI  (0)
+		TDO  (0);
+
+
+! Read the status bit
+
+! Shift in LSC_READ_STATUS(0x3C) instruction
+SIR	8	TDI  (3C);
+! wait 1.00e-003 SEC
+RUNTEST	IDLE	1002 TCK;
+SDR	32	TDI  (00000000)
+		TDO  (00000000)
+		MASK (00003000);
+
+
+! Exit the programming mode
+
+! Shift in ISC DISABLE(0x26) instruction
+SIR	8	TDI  (26);
+! wait 1.00e+000 SEC
+RUNTEST	IDLE	1000002 TCK;
+! Shift in BYPASS(0xFF) instruction
+SIR	8	TDI  (FF);
+! wait 1.00e-001 SEC
+RUNTEST	IDLE	100100 TCK;
+STATE	RESET;

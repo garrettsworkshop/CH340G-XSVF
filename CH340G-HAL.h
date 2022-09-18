@@ -10,11 +10,11 @@
 #include "CH340G-time.h"
 #include "CH340G-quit.h"
 
-#define CLKCHAR_1 0x00
-#define CLKCHAR_2 0x40
-#define CLKCHAR_3 0x50
-#define CLKCHAR_4 0x54
-#define CLKCHAR_5 0x55
+#define CLKCHAR_1 0x00 // 00000000 -> ...10111111111...
+#define CLKCHAR_2 0x40 // 01000000 -> ...10101111111...
+#define CLKCHAR_3 0x50 // 01010000 -> ...10101011111...
+#define CLKCHAR_4 0x54 // 01010100 -> ...10101010111...
+#define CLKCHAR_5 0x55 // 01010101 -> ...10101010101...
 
 char portname[16] = { 0 };
 HANDLE serialport = NULL;

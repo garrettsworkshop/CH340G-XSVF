@@ -39,6 +39,7 @@ uint32_t found_devices;
 uint32_t found_idcode;
 uint32_t expected_bits;
 enum libxsvf_mode cur_mode;
+char enable_vt;
 
 struct udata_s {
 	FILE* f;
@@ -66,8 +67,9 @@ void printshortinfo() {
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
 		LONGLONG end = GetTicksNow() - start;
 		double elapsed = (double)end / ticks_per_ms / 1000.0f;
-		fprintf(stderr, "\033[1A\033[KUpdate in progress...        Bits: %7d        Time: %5.1f sec.        Speed: %5.1f b/sec.\n",
-			u.clockcount, elapsed, (double)u.clockcount / elapsed);
+		if (enable_vt) { fprintf(stderr, "\033[1A\033[K"); }
+		fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %-7d      Time: %6.1f sec.      Speed: %6.1f b/sec.\n",
+			(float)u.clockcount / expected_bits, u.clockcount, elapsed, (double)u.clockcount / elapsed);
 	}
 }
 
@@ -97,8 +99,8 @@ static int h_shutdown(struct libxsvf_host* h)
 	struct udata_s* u = h->user_data;
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
 		fprintf(stderr, "Closing JTAG connection...\n\n");
+		fflush(stderr);
 	}
-	fflush(stderr);
 	flush_tck();
 	io_shutdown();
 	return 0;
@@ -142,7 +144,7 @@ static void h_report_tapstate(struct libxsvf_host* h)
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 {
-	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n", 
+	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n",
 		idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
 
 	found_devices++;
@@ -192,7 +194,8 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
 		tck_queue++;
 		return 1;
-	} else {
+	}
+	else {
 		if (tck_queue > 0) {
 			Gate();
 			SetGate();
@@ -265,23 +268,22 @@ static void copyleft()
 		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
 		"                         |_|                                |___/                       \n");
 	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
-#ifndef _DEBUG
-	Sleep(1500);
-#endif
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
 	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n\n");
-	fprintf(stderr, "Loading");
+	fprintf(stderr, "Loading...");
 #ifndef _DEBUG
 	for (int i = 0; i < 10; i++) {
 		fputc('.', stderr);
 		Sleep(500);
 	}
 #endif
-	fputc('\n', stderr);
-	for (int i = 0; i < 9; i++) { fprintf(stderr, "\033[0K\033[1A"); }
+	if (enable_vt) {
+		fputc('\n', stderr);
+		for (int i = 0; i < 9; i++) { fprintf(stderr, "\033[0K\033[1A"); }
+	}
 	fputc('\n', stderr);
 	fputc('\n', stderr);
 }
@@ -294,6 +296,15 @@ int main(int argc, char** argv)
 	enum libxsvf_mode mode;
 	int portnum;
 
+	// Enable ASCII terminal control codes
+	HANDLE hConsole = GetStdHandle(STD_ERROR_HANDLE);
+	DWORD consoleMode;
+	GetConsoleMode(hConsole, &consoleMode);
+	consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+	if (SetConsoleMode(hConsole, consoleMode)) { enable_vt = 1; }
+	else { enable_vt = 0; }
+
+	// Display copyright message
 	copyleft();
 
 	// Check for correct number of arguments
@@ -303,15 +314,15 @@ int main(int argc, char** argv)
 	}
 
 	// Open data file
-#ifndef GWDEBUG
-	u.f = fopen("Packager\\GWUpdate_out.exe", "rb");
+#ifndef _DEBUG
+	u.f = fopen(argv[0], "rb");
 #else
-	u.f = fopen("update.svf", "rb");
+	u.f = fopen("Packager/GWUpdate_out.exe", "rb");
 #endif
 
 	if (!u.f) {
 		fprintf(stderr,
-#ifndef GWDEBUG
+#ifndef _DEBUG
 			"Error! Failed to open GWUpdate executable as data file."
 #else
 			"Error! Failed to open update data file."
@@ -321,7 +332,6 @@ int main(int argc, char** argv)
 	}
 
 	// Find XSVF data
-#ifndef GWDEBUG
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
 		if (i > 255) { // Looked too many times fail
 			fprintf(stderr, "Error! (X)SVF flag not found.\n");
@@ -343,22 +353,14 @@ int main(int argc, char** argv)
 		if (fgetc(u.f) != 'F') { continue; }
 		break;
 	}
-#else
-	mode = LIBXSVF_MODE_SVF; // XSVF mode during debug
-#endif
 
 	// Get expected bit count from update file
-#ifndef GWDEBUG
 	if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {
 		fprintf(stderr, "Error! Could not read expected bit count from update file.\n");
 		return quit(-1);
 	}
-#else
-	expected_bits = 72000; // Expected bit count for Altera EPM7128S
-#endif
 
 	// Ensure update file indicates only one device on JTAG chain
-#ifndef GWDEBUG
 	if (!fread(&expected_devices, sizeof(uint32_t), 1, u.f)) {
 		fprintf(stderr, "Error! Could not read JTAG device count from update file.\n");
 		return quit(-1);
@@ -372,47 +374,32 @@ int main(int argc, char** argv)
 		fprintf(stderr, "Error! Update file has no devices on JTAG chain.\n");
 		return quit(-1);
 	}
-#else
-	expected_devices = 1;
-#endif
 	found_devices = 0; // Reset found devices
 
 
 	// Read single expected IDCODE from update file
-#ifndef GWDEBUG
 	if (fread(&expected_idcode, sizeof(uint32_t), 1, u.f) != 1) { // Couldn't read idcode
 		fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
 		return quit(-1);
 	}
-#else
-	expected_idcode = 0x071280dd; // Altera EPM7128S "Altera97"
-#endif
 
 	// Print first instructions text from update file
-#ifndef GWDEBUG
 	while (1) {
 		int c = fgetc(u.f);
 		if (c == EOF || c == 0) { break; }
 		else { fputc(c, stderr); }
 	}
-#else
-	fputs("<instructions1>\n", stderr);
-#endif
 
 	getchar();
 
 	comsearch(portname);
 
 	// Print second instructions text from update file
-#ifndef GWDEBUG
 	while (1) {
 		int c = fgetc(u.f);
 		if (c == EOF || c == 0) { break; }
 		else { fputc(c, stderr); }
 	}
-#else
-	fputs("<instructions2>\n", stderr);
-#endif
 
 	getchar();
 
@@ -434,10 +421,12 @@ int main(int argc, char** argv)
 	}
 
 	// Check for expected IDCODE
-	if (expected_idcode != found_idcode) {
+#ifndef _DEBUG
+	if (expected_idcode != 0 && expected_idcode != found_idcode) {
 		fprintf(stderr, "Error! Incorrect device found on JTAG chain.\n");
 		return quit(-1);
 	}
+#endif
 
 	// Play update (X)SVF
 	fputc('\n', stderr);

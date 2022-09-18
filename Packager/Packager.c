@@ -82,14 +82,14 @@ int main(int argc, char** argv)
 	FILE* inst2_file = NULL;
 	FILE* out_file;
 
-	if (argc == 1) {
-		expected_bits = 400000;
-		idcode = 0x00000000;
+	if (argc == 1) { // Default arguments
+		expected_bits = 800000;
+		idcode = 0x071280dd; // Altera EPM7128S "Altera97"
 		inst1 = "Unplug device.\n";
 		inst2 = "Plug in device.\n";
-		update_name = "..\\update.svf";
+		update_name = "../update.svf";
 		is_xsvf = 0;
-		gwupdate_name = "..\\x64\\Release\\GWUpdate.exe";
+		gwupdate_name = "../x64/Release/GWUpdate.exe";
 		out_name = "GWUpdate_out.exe";
 	}
 	else if (argc == 6) {

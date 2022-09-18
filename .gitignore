@@ -18,3 +18,16 @@ Packager/x64/*
 Packager/x86/*
 Packager/Debug/*
 Packager/Release/*
+x64/Release/GWUpdate.exe.recipe
+x64/Release/GWUpdate.iobj
+x64/Release/GWUpdate.ipdb
+x64/Release/GWUpdate.log
+x64/Release/GWUpdate.tlog/CL.command.1.tlog
+x64/Release/GWUpdate.tlog/CL.read.1.tlog
+x64/Release/GWUpdate.tlog/CL.write.1.tlog
+x64/Release/GWUpdate.tlog/GWUpdate.lastbuildstate
+x64/Release/GWUpdate.tlog/GWUpdate.write.1u.tlog
+x64/Release/GWUpdate.tlog/link.command.1.tlog
+x64/Release/GWUpdate.tlog/link.read.1.tlog
+x64/Release/GWUpdate.tlog/link.write.1.tlog
+x64/Release/GWUpdate.vcxproj.FileListAbsolute.txt

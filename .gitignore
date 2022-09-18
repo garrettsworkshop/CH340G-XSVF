@@ -6,6 +6,11 @@ x64/Debug/*
 *.obj
 *.pdb
 .DS_Store
+*/.DS_Store
+*/*/.DS_Store
+*/*/*/.DS_Store
+*/*/*/*/.DS_Store
+*.DS_Store
 update.xsvf
 Packager/GWUpdate_out.exe
 Packager/a.out

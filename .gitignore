@@ -13,7 +13,6 @@ x64/Debug/*
 */*/*/*/.DS_Store
 *.DS_Store
 update.xsvf
-Packager/GWUpdate_out.exe
 Packager/a.out
 Packager/x64/*
 Packager/x86/*

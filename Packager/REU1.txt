@@ -1,1 +1,2 @@
-This program will flash 
+This program will flash blah blah.
+Plug in REU but turn Commodore off, then press enter.

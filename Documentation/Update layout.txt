@@ -1,7 +1,7 @@
 On 128 kB boundary < 65,536 kB:
 
-Offset	What					Length	Notes
-0000		"XSVF" or " SVF"			4
+Offset		What				Length		Notes
+0000		"XSVF" or " SVF"		4
 0004		expected bit count		4
 0008		num. devices on JTAG chain	4		Must be 1
 000C		JTAG IDCODE of single device	4		Variable length but only 1 supported

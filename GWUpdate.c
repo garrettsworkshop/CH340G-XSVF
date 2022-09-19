@@ -68,8 +68,10 @@ void printshortinfo() {
 		LONGLONG end = GetTicksNow() - start;
 		double elapsed = (double)end / ticks_per_ms / 1000.0f;
 		if (enable_vt) { fprintf(stderr, "\033[1A\033[K"); }
-		fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %-7d      Time: %6.1f sec.      Speed: %6.1f b/sec.\n",
-			(float)u.clockcount / expected_bits, u.clockcount, elapsed, (double)u.clockcount / elapsed);
+		float percent = 100.0f * (float)u.clockcount / expected_bits;
+		if (percent > 100.0f) { percent = 100.0f; }
+		fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %d      Time: %.1f sec.      Speed: %.1f b/sec.\n",
+			percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
 	}
 }
 
@@ -144,7 +146,7 @@ static void h_report_tapstate(struct libxsvf_host* h)
 
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 {
-	printf("Found device on JTAG chain. IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n",
+	printf("Found device on JTAG chain.      IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n",
 		idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
 
 	found_devices++;
@@ -277,7 +279,7 @@ static void copyleft()
 #ifndef _DEBUG
 	for (int i = 0; i < 10; i++) {
 		fputc('.', stderr);
-		Sleep(500);
+		Sleep(1000);
 	}
 #endif
 	if (enable_vt) {

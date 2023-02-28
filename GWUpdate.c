@@ -184,8 +184,9 @@ static void* h_realloc(struct libxsvf_host* h, void* ptr, int size, enum libxsvf
 	return realloc(ptr, size);
 }
 
-int tms_old = -1;
-int tdi_old = -1;
+static int fast_enable = 0;
+static int tms_old = -1;
+static int tdi_old = -1;
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
 {
 	struct udata_s* u = h->user_data;
@@ -193,7 +194,22 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	u->clockcount++;
 	if (tdi >= 0) { u->bitcount_tdi++; }
 
-	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
+	if (!fast_enable) {
+		u->sendcount++;
+		io_tms(tms);
+		io_tdi(tdi);
+		Sleep(1);
+		if (!EscapeCommFunction(serialport, SETBREAK)) { goto error; }
+		Sleep(1);
+		if (!EscapeCommFunction(serialport, CLRBREAK)) { goto error; }
+		Sleep(1);
+		int line_tdo = io_tdo();
+		return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
+	error:
+		fprintf(stderr, "Error enabling COM port break condition!\n");
+		quit(-1);
+	}
+	else if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
 		tck_queue++;
 		return 1;
 	}
@@ -331,7 +347,7 @@ int main(int argc, char** argv)
 #endif
 			"\n");
 		return quit(-1);
-	}
+}
 
 	// Find XSVF data
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
@@ -430,6 +446,8 @@ int main(int argc, char** argv)
 	}
 #endif
 
+	fast_enable = 1;
+
 	// Play update (X)SVF
 	fputc('\n', stderr);
 	cur_mode = mode;
@@ -455,4 +473,4 @@ int main(int argc, char** argv)
 	fclose(u.f);
 
 	return quit(0);
-}
+	}

@@ -1,2 +1,0 @@
-Now it's gonna look for the REU and flash it.
-So turn on your Commodore 64 with the REU plugged in and then press enter.

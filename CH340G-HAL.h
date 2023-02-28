@@ -114,6 +114,9 @@ static void io_setup(void)
 	dcb.StopBits = ONESTOPBIT;
 	if (!SetCommState(serialport, &dcb)) { goto error; }
 
+	io_tms(1);
+	io_tdi(1);
+
 	if (!EscapeCommFunction(serialport, CLRBREAK)) { goto error; }
 	Sleep(100);
 	if (!EscapeCommFunction(serialport, SETBREAK)) { goto error; }

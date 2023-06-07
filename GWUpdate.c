@@ -285,7 +285,7 @@ static void copyleft()
 		"                   | |_| | |_) | (_| | (_| | ||  __/  ___) | |_| \\__ \\ ||  __/ | | | | | \n"
 		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
 		"                         |_|                                |___/                       \n");
-	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
+	fprintf(stderr, "Copyright (C) 2023 Garrett's Workshop\n");
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
@@ -308,6 +308,43 @@ static void copyleft()
 
 #define STRBUF_SIZE (64 * 1024)
 char strbuf[STRBUF_SIZE];
+
+typedef enum boardid_digit_e {
+	BOARDID_DIGIT_0 = 0,
+	BOARDID_DIGIT_1 = 1,
+	BOARDID_DIGIT_DTR = 2,
+	BOARDID_DIGIT_RTS = 3,
+	BOARDID_DIGIT_DONTCARE = -1,
+} boardid_digit_t;
+
+int check_boardid_digit(boardid_digit_t(*get)(), boardid_digit_t expected) {
+	io_tdi(0); io_tms(0);
+	char func_type = get() & 1;
+	io_tdi(0); io_tms(1);
+	func_type = (func_type << 1) | (get() & 1);
+	io_tdi(1); io_tms(0);
+	func_type = (func_type << 1) | (get() & 1);
+	io_tdi(1); io_tms(1);
+	func_type = (func_type << 1) | (get() & 1);
+
+	switch (expected) {
+	case BOARDID_DIGIT_0: return func_type == 0;
+	case BOARDID_DIGIT_1: return func_type == 1;
+	case BOARDID_DIGIT_DTR:
+		io_tdi(1);
+		if (get() != 1) { return -1; }
+		io_tdi(0);
+		if (get() != 0) { return -1; }
+		io_tdi(1);
+	case BOARDID_DIGIT_RTS:
+		io_tms(1);
+		if (get() != 1) { return -1; }
+		io_tms(0);
+		if (get() != 0) { return -1; }
+		io_tms(1);
+	}
+	return 0;
+}
 
 int main(int argc, char** argv)
 {
@@ -347,7 +384,7 @@ int main(int argc, char** argv)
 #endif
 			"\n");
 		return quit(-1);
-}
+	}
 
 	// Find XSVF data
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
@@ -370,6 +407,23 @@ int main(int argc, char** argv)
 		if (fgetc(u.f) != 'V') { continue; }
 		if (fgetc(u.f) != 'F') { continue; }
 		break;
+	}
+
+	// Get boardid digits
+	boardid_digit_t boardid_dsr;
+	boardid_digit_t boardid_ri;
+	boardid_digit_t boardid_dcd;
+	if (!fread(&boardid_dsr, sizeof(boardid_digit_t), 1, u.f)) {
+		fprintf(stderr, "Error! Could not read boardid digit DSR from update file.\n");
+		return quit(-1);
+	}
+	if (!fread(&boardid_ri, sizeof(boardid_digit_t), 1, u.f)) {
+		fprintf(stderr, "Error! Could not read boardid digit RI from update file.\n");
+		return quit(-1);
+	}
+	if (!fread(&boardid_dcd, sizeof(boardid_digit_t), 1, u.f)) {
+		fprintf(stderr, "Error! Could not read boardid digit DCD from update file.\n");
+		return quit(-1);
 	}
 
 	// Get expected bit count from update file
@@ -427,6 +481,14 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
+	// Check for expected board ID
+	if (check_boardid_digit(io_dsr, boardid_dsr) ||
+		check_boardid_digit(io_ri, boardid_ri) ||
+		check_boardid_digit(io_dcd, boardid_dcd)) {
+		fprintf(stderr, "Error! Wrong board ID.\n");
+		return quit(-1);
+	}
+
 	// Start elapsed time timer
 	SetupTicks();
 	start = GetTicksNow();
@@ -473,4 +535,4 @@ int main(int argc, char** argv)
 	fclose(u.f);
 
 	return quit(0);
-	}
+}

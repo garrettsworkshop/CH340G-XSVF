@@ -71,6 +71,36 @@ static int io_tdo()
 	return (status & MS_CTS_ON) ? 0 : 1;
 }
 
+static int io_dsr()
+{
+	DWORD status;
+	if (!GetCommModemStatus(serialport, &status)) {
+		fprintf(stderr, "Error reading DSR from %s!\n", portname);
+		quit(-1);
+	}
+	return (status & MS_DSR_ON) ? 0 : 1;
+}
+
+static int io_ri()
+{
+	DWORD status;
+	if (!GetCommModemStatus(serialport, &status)) {
+		fprintf(stderr, "Error reading RI from %s!\n", portname);
+		quit(-1);
+	}
+	return (status & MS_RING_ON) ? 0 : 1;
+}
+
+static int io_dcd()
+{
+	DWORD status;
+	if (!GetCommModemStatus(serialport, &status)) {
+		fprintf(stderr, "Error reading DCD from %s!\n", portname);
+		quit(-1);
+	}
+	return (status & MS_RLSD_ON) ? 0 : 1;
+}
+
 static void io_setup(void)
 {
 	char name[100] = { 0 };

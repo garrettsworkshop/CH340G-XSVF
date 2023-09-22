@@ -65,37 +65,10 @@ void writebin(FILE* to, FILE* from) {
 	} while (count != 0);
 }
 
-typedef enum boardid_digit_e {
-	BOARDID_DIGIT_0 = 0,
-	BOARDID_DIGIT_1 = 1,
-	BOARDID_DIGIT_DTR = 2,
-	BOARDID_DIGIT_RTS = 3,
-	BOARDID_DIGIT_DONTCARE = -1,
-} boardid_digit_t;
-
-boardid_digit_t parse_boardid_digit(char *digit, char *fail_message) {
-	if (strlen(digit) == 1) {
-		switch (digit[0]) {
-			case '0': return BOARDID_DIGIT_0;
-			case '1': return BOARDID_DIGIT_1;
-			case 'D': return BOARDID_DIGIT_DTR;
-			case 'R': return BOARDID_DIGIT_RTS;
-			case 'X': return BOARDID_DIGIT_DONTCARE;
-		}
-	}
-	fputs(fail_message, stderr);
-	exit(-1);
-	return BOARDID_DIGIT_DONTCARE;
-}
-
 int main(int argc, char** argv)
 {
 	uint32_t expected_bits;
-	boardid_digit_t boardid_dsr;
-	boardid_digit_t boardid_ri;
-	boardid_digit_t boardid_dcd;
 	uint32_t idcode;
-
 	char* inst1;
 	char* inst2;
 	char* update_name;
@@ -111,9 +84,6 @@ int main(int argc, char** argv)
 
 	if (argc == 1) { // Default arguments
 		expected_bits = 800000;
-		boardid_dsr = BOARDID_DIGIT_DONTCARE;
-		boardid_ri = BOARDID_DIGIT_DONTCARE;
-		boardid_dcd = BOARDID_DIGIT_DONTCARE;
 		idcode = 0x071280dd; // Altera EPM7128S "Altera97"
 		inst1 = "Unplug device.\n";
 		inst2 = "Plug in device.\n";
@@ -122,20 +92,16 @@ int main(int argc, char** argv)
 		gwupdate_name = "../x64/Release/GWUpdate.exe";
 		out_name = "GWUpdate_out.exe";
 	}
-	else if (argc == 11) {
+	else if (argc == 8) {
 		expected_bits = strtol(argv[1], NULL, 10);
-		boardid_dsr = parse_boardid_digit(argv[2], "Error! Bad BOARDID_DSR.");
-		boardid_ri = parse_boardid_digit(argv[3], "Error! Bad BOARDID_RI.\n");
-		boardid_dcd = parse_boardid_digit(argv[4], "Error! Bad BOARDID_DCD.\n");
-		idcode = strtol(argv[5], NULL, 16);
-		inst1 = argv[6];
-		inst2 = argv[7];
-		update_name = argv[8];
-		gwupdate_name = argv[9];
-		out_name = argv[10];
+		idcode = strtol(argv[2], NULL, 16);
+		inst1 = argv[3];
+		inst2 = argv[4];
+		update_name = argv[5];
+		gwupdate_name = argv[6];
+		out_name = argv[7];
 
-		is_xsvf =(update_name[strlen(update_name) - 4] == 'X') || 
-			(update_name[strlen(update_name) - 4] == 'x');
+		is_xsvf = update_name[strlen(update_name) - 4] == 'X';
 
 		inst1_file = fopen(inst1, "r");
 		if (!inst1_file) {
@@ -152,9 +118,6 @@ int main(int argc, char** argv)
 	else {
 		fputs("Usage: gwupkg "
 			"<EXPECTED_LENGTH> "
-			"<BOARDID_DSR> "
-			"<BOARDID_RI> "
-			"<BOARDID_DCD> "
 			"<IDCODE> "
 			"<INSTRUCTIONS1> "
 			"<INSTRUCTIONS2> "
@@ -191,11 +154,6 @@ int main(int argc, char** argv)
 	buf[2] = 'V';
 	buf[3] = 'F';
 	fwrite(buf, 1, 4, out_file);
-
-	// Write boardid digits
-	fwrite(&boardid_dsr, sizeof(boardid_digit_t), 1, out_file);
-	fwrite(&boardid_ri, sizeof(boardid_digit_t), 1, out_file);
-	fwrite(&boardid_dcd, sizeof(boardid_digit_t), 1, out_file);
 
 	fwrite(&expected_bits, sizeof(uint32_t), 1, out_file);
 

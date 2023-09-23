@@ -82,6 +82,7 @@
     <ClCompile Include="Packager.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="boardid.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

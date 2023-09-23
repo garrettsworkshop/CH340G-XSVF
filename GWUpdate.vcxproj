@@ -94,6 +94,7 @@
     <ClInclude Include="CH340G-quit.h" />
     <ClInclude Include="CH340G-time.h" />
     <ClInclude Include="comsearch.h" />
+    <ClInclude Include="gwxsvf.h" />
     <ClInclude Include="libxsvf.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

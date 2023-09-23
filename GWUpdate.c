@@ -32,6 +32,7 @@
 #include "CH340G-HAL.h"
 #include "CH340G-time.h"
 #include "CH340G-quit.h"
+#include "Packager/boardid.h"
 
 uint32_t expected_devices;
 uint32_t expected_idcode;
@@ -70,7 +71,7 @@ void printshortinfo() {
 		if (enable_vt) { fprintf(stderr, "\033[1A\033[K"); }
 		float percent = 100.0f * (float)u.clockcount / expected_bits;
 		if (percent > 100.0f) { percent = 100.0f; }
-		fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %d      Time: %.1f sec.      Speed: %.1f b/sec.\n",
+		fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
 			percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
 	}
 }
@@ -285,7 +286,7 @@ static void copyleft()
 		"                   | |_| | |_) | (_| | (_| | ||  __/  ___) | |_| \\__ \\ ||  __/ | | | | | \n"
 		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
 		"                         |_|                                |___/                       \n");
-	fprintf(stderr, "Copyright (C) 2022 Garrett's Workshop\n");
+	fprintf(stderr, "Copyright (C) 2023 Garrett's Workshop\n");
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
@@ -295,8 +296,10 @@ static void copyleft()
 #ifndef _DEBUG
 	for (int i = 0; i < 10; i++) {
 		fputc('.', stderr);
-		Sleep(1000);
+		Sleep(800);
 	}
+#else
+	Sleep(1000);
 #endif
 	if (enable_vt) {
 		fputc('\n', stderr);
@@ -308,6 +311,39 @@ static void copyleft()
 
 #define STRBUF_SIZE (64 * 1024)
 char strbuf[STRBUF_SIZE];
+
+int check_boardid_digit(int(*get)(), boardid_digit_t expected) {
+	if (expected == BOARDID_DIGIT_DONTCARE) { return 0;  }
+
+	int id;
+	io_tms(0);
+	io_tdi(0);
+	id = get();
+	io_tms(0);
+	io_tdi(1);
+	id = (id << 1) | get();
+	io_tms(1);
+	io_tdi(0);
+	id = (id << 1) | get();
+	io_tms(1);
+	io_tdi(1);
+	id = (id << 1) | get();
+
+	if (id == expected) { return 0; }
+	else { return -1; }
+}
+
+int read_boardid_digit(FILE *f, boardid_digit_t *digit, char *name) {
+	if (!fread(digit, sizeof(boardid_digit_t), 1, f)) {
+		fprintf(stderr, "Error! Could not read boardid digit %s from update file.\n", name);
+		return -1;
+	}
+	else if (boardid_digit_invalid(*digit)) {
+		fprintf(stderr, "Error! Invalid boardid digit %s.\n", name);
+		return -1;
+	}
+	return 0;
+}
 
 int main(int argc, char** argv)
 {
@@ -347,30 +383,52 @@ int main(int argc, char** argv)
 #endif
 			"\n");
 		return quit(-1);
-}
+	}
 
 	// Find XSVF data
 	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
 		if (i > 255) { // Looked too many times fail
-			fprintf(stderr, "Error! (X)SVF flag not found.\n");
+			fprintf(stderr, "Error! Update file signature not found.\n");
 			return quit(-1);
 		}
 		if (fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
-			fprintf(stderr, "Error! Seeked past end of file looking for (X)SVF flag.\n");
+			fprintf(stderr, "Error! Seeked past end of file looking for update file signature.\n");
 			return quit(-1);
 		}
 
-		// Check for flag
 		char c = fgetc(u.f);
-		if (c == 'X') { mode = LIBXSVF_MODE_XSVF; } // First 'X' for XSVF
-		else if (c == ' ') { mode = LIBXSVF_MODE_SVF; } // First ' ' for SVF
-		else { continue; } // If neither try next 128k
-		// Then 'S', 'V', 'F', else try next 128k
-		if (fgetc(u.f) != 'S') { continue; }
-		if (fgetc(u.f) != 'V') { continue; }
-		if (fgetc(u.f) != 'F') { continue; }
+		if (c != 'U') { continue; }
+		c = fgetc(u.f);
+		if (c != 'P') { continue; }
+		c = fgetc(u.f);
+		if (c != 'D') { continue; }
+		c = fgetc(u.f);
+		if (c != '8') { continue; }
 		break;
 	}
+
+	// Get (X)SVF file type flag
+	int c[4];
+	for (int i = 0; i < 4; i++) { c[i] = fgetc(u.f); }
+
+	// Check update file type - SVF or XSVF
+	if (c[0] == 'X') { mode = LIBXSVF_MODE_XSVF; } // First 'X' for XSVF
+	else if (c[0] == ' ') { mode = LIBXSVF_MODE_SVF; } // First ' ' for SVF
+	else { c[1] = EOF; }
+	if ((c[1] != 'S') || (c[2] != 'V') || (c[3] != 'F')) {
+		fprintf(stderr, "Error! Unsupported update format.\n");
+		return quit(-1);
+	}
+
+	// Get boardid digits
+	boardid_digit_t boardid_dsr;
+	boardid_digit_t boardid_ri;
+	boardid_digit_t boardid_dcd;
+	boardid_digit_t boardid_reserved;
+	if (read_boardid_digit(u.f, &boardid_dsr, "DSR")) { quit(-1); }
+	if (read_boardid_digit(u.f, &boardid_ri, "RI")) { quit(-1); }
+	if (read_boardid_digit(u.f, &boardid_dcd, "DCD")) { quit(-1); }
+	if (read_boardid_digit(u.f, &boardid_reserved, "reserved")) { quit(-1); }
 
 	// Get expected bit count from update file
 	if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {
@@ -427,6 +485,19 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
+	// Checking board ID...
+	fprintf(stderr, "Checking board id...\n");
+
+	// Check for expected board ID
+	io_setup();
+	if (check_boardid_digit(io_dsr, boardid_dsr) ||
+		check_boardid_digit(io_ri, boardid_ri) ||
+		check_boardid_digit(io_dcd, boardid_dcd)) {
+		fprintf(stderr, "Error! Wrong board ID.\n");
+		return quit(-1);
+	}
+	io_shutdown();
+
 	// Start elapsed time timer
 	SetupTicks();
 	start = GetTicksNow();
@@ -439,13 +510,12 @@ int main(int argc, char** argv)
 	}
 
 	// Check for expected IDCODE
-#ifndef _DEBUG
 	if (expected_idcode != 0 && expected_idcode != found_idcode) {
 		fprintf(stderr, "Error! Incorrect device found on JTAG chain.\n");
 		return quit(-1);
 	}
-#endif
 
+	// Enable fast mode
 	fast_enable = 1;
 
 	// Play update (X)SVF
@@ -454,16 +524,16 @@ int main(int argc, char** argv)
 	if (libxsvf_play(&h, mode) < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
 		printinfo();
-		fprintf(stderr, "----------------------\n");
-		fprintf(stderr, "| Programming FAILED |\n");
-		fprintf(stderr, "----------------------\n");
+		fprintf(stderr, "-----------------\n");
+		fprintf(stderr, "| Update FAILED |\n");
+		fprintf(stderr, "-----------------\n");
 		return quit(-1);
 	}
 	else {
 		printinfo();
-		fprintf(stderr, "--------------------------\n");
-		fprintf(stderr, "| Programming SUCCESSFUL |\n");
-		fprintf(stderr, "--------------------------\n");
+		fprintf(stderr, "---------------------\n");
+		fprintf(stderr, "| Update SUCCESSFUL |\n");
+		fprintf(stderr, "---------------------\n");
 	}
 
 	LONGLONG end = GetTicksNow() - start;
@@ -473,4 +543,4 @@ int main(int argc, char** argv)
 	fclose(u.f);
 
 	return quit(0);
-	}
+}

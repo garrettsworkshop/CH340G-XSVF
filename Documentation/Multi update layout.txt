@@ -3,7 +3,9 @@ On 128 kB boundary < 65,536 kB:
 Offset		What				Length		Notes
 0000		"UPD8"				4
 0004		"MLTI"				4
-0008		num. update files	 	4
+next		Instructions 1			variable	Null-terminated string
+next		Instructions 2			variable	Null-terminated string
+next		num. update files	 	4
 
 Repeat:
 last+0000	update length		 	4
@@ -14,7 +16,5 @@ last+0007	reserved board id digit		1
 last+0008	expected bit count		4
 last+000C	num. devices on JTAG chain	4		Must be 1
 last+0010	JTAG IDCODE of single device	4		Variable length but only 1 supported
-last+0014	Instructions 1			variable	Null-terminated string
-next		Instructions 2			variable	Null-terminated string
-next		(X)SVF update file		variable
+last+0014	(X)SVF update file		variable
 

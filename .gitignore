@@ -17,12 +17,19 @@ x64/Debug/*
 x64/Release/*
 !x64/Release/GWUpdate.exe
 !x64/Release/Packager.exe
+!x64/Release/Combiner.exe
 
 Packager/a.out
 Packager/x64/*
 Packager/x86/*
 Packager/Debug/*
 Packager/Release/*
-
 Packager/*.exe
+
+Combiner/a.out
+Combiner/x64/*
+Combiner/x86/*
+Combiner/Debug/*
+Combiner/Release/*
+
 Combiner/*.exe

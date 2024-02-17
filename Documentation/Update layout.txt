@@ -1,15 +1,19 @@
 On 128 kB boundary < 65,536 kB:
 
-Offset		What							Length		Notes
+Offset		What							Length	Notes
 0000		"UPD8"							4
-0004		"XSVF" or " SVF"				4
-0008		board id digit DSR				1
-0009		board id digit RI				1
-000A		board id digit DCD				1
-000B		reserved board id digit			1
-000C		expected bit count				4
-0010		num. devices on JTAG chain		4			Must be 1
-0014		JTAG IDCODE of single device	4			Variable length but only 1 supported
-0018		Instructions 1					variable	Null-terminated string
-next		Instructions 2					variable	Null-terminated string
-next		(X)SVF update file				variable
+0004		num. update files			 	4
+0008		Instructions 1					var		Null-term str
+next		Instructions 2					var		Null-term str
+
+Repeat:
+last+0000	"XSVF" or " SVF"				4
+last+0004	board id digit DSR				1
+last+0005	board id digit RI				1
+last+0006	board id digit DCD				1
+last+0007	reserved board id digit			1
+last+0008	expected bit count				4
+last+000C	num. devices on JTAG chain		4		Must be 1
+last+0010	JTAG IDCODE of single device	4		
+last+0014	update length			 		4
+last+0018	(X)SVF update file				var

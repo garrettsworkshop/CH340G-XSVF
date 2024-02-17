@@ -51,7 +51,7 @@ static void writestr(FILE* to, FILE* from) {
 	while (1) {
 		for (int i = 0; i < count; i++) {
 			if (buf[i] == 0) {
-				fwrite(buf, 1, i+1, to);
+				fwrite(buf, 1, i + 1, to);
 				return;
 			}
 		}
@@ -69,7 +69,7 @@ static void writestr(FILE* to, FILE* from) {
 	}
 }
 
-boardid_digit_t parse_boardid_digit(const char *digit, const char *fail_message) {
+boardid_digit_t parse_boardid_digit(const char* digit, const char* fail_message) {
 	boardid_digit_t ret;
 	if (boardid_from_char(digit[0], &ret)) {
 		fputs(fail_message, stderr);
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
 		gwupdate_name = argv[9];
 		out_name = argv[10];
 
-		is_xsvf =(update_name[strlen(update_name) - 4] == 'X') || 
+		is_xsvf = (update_name[strlen(update_name) - 4] == 'X') ||
 			(update_name[strlen(update_name) - 4] == 'x');
 
 		inst1_file = fopen(inst1, "r");

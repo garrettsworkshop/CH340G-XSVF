@@ -62,5 +62,8 @@
     <ClInclude Include="gwxsvf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Packager\boardid.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

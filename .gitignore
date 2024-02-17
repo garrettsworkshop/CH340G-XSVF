@@ -25,3 +25,4 @@ Packager/Debug/*
 Packager/Release/*
 
 Packager/*.exe
+Combiner/*.exe

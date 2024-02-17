@@ -34,6 +34,8 @@
 #include "CH340G-quit.h"
 #include "Packager/boardid.h"
 
+#define LEN128K (128 * 1024)
+
 uint32_t expected_devices;
 uint32_t expected_idcode;
 uint32_t found_devices;
@@ -209,6 +211,7 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	error:
 		fprintf(stderr, "Error enabling COM port break condition!\n");
 		quit(-1);
+		return -1;
 	}
 	else if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
 		tck_queue++;
@@ -385,13 +388,13 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	// Find XSVF data
-	for (int i = 1; ; i++) { // Search at each 128k offset for SVF/XSVF flag
+	// Find embedded update file
+	for (int i = 1; ; i++) { // Search at each 128k offset for UPD8 signature
 		if (i > 255) { // Looked too many times fail
 			fprintf(stderr, "Error! Update file signature not found.\n");
 			return quit(-1);
 		}
-		if (fseek(u.f, i * 128 * 1024, SEEK_SET)) { // Seek past end of file fail
+		if (fseek(u.f, i * LEN128K, SEEK_SET)) { // Seek past end of file fail
 			fprintf(stderr, "Error! Seeked past end of file looking for update file signature.\n");
 			return quit(-1);
 		}
@@ -405,6 +408,44 @@ int main(int argc, char** argv)
 		c = fgetc(u.f);
 		if (c != '8') { continue; }
 		break;
+	}
+
+	// Read number of updates from file
+	uint32_t num_updates;
+	if (!fread(&num_updates, sizeof(uint32_t), 1, u.f)) { // Couldn't read idcode
+		fprintf(stderr, "Error! Couldn't read number of update images from file.\n");
+		return quit(-1);
+	}
+
+	// Fail if number of updates isn't 1
+	if (num_updates != 1) {
+		fprintf(stderr, "Error! More than one update image per file not currently supported.\n");
+		return quit(-1);
+	}
+
+	// Print first instructions text from update file
+	while (1) {
+		int c = fgetc(u.f);
+		if (c == EOF || c == 0) { break; }
+		else { fputc(c, stderr); }
+	}
+	getchar(); // Wait for enter key
+
+	// Enumerate COM ports
+	comsearch(portname);
+
+	// Print second instructions text from update file
+	while (1) {
+		int c = fgetc(u.f);
+		if (c == EOF || c == 0) { break; }
+		else { fputc(c, stderr); }
+	}
+	getchar(); // Wait for enter key
+
+	// Pick COM port
+	if ((portnum = compick(portname)) <= 0) {
+		fprintf(stderr, "Error! Could not find USB device.\n");
+		return quit(-1);
 	}
 
 	// Get (X)SVF file type flag
@@ -436,12 +477,13 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	// Ensure update file indicates only one device on JTAG chain
+	// Read number of devices on JTAG chain
 	if (!fread(&expected_devices, sizeof(uint32_t), 1, u.f)) {
 		fprintf(stderr, "Error! Could not read JTAG device count from update file.\n");
 		return quit(-1);
 	}
-	// Only supporting one device on chain...
+
+	// Fail if number of devices isn't 1
 	if (expected_devices > 1) {
 		fprintf(stderr, "Error! Update file has multiple devices on JTAG chain but GWUpdate only supports one device.\n");
 		return quit(-1);
@@ -452,36 +494,9 @@ int main(int argc, char** argv)
 	}
 	found_devices = 0; // Reset found devices
 
-
 	// Read single expected IDCODE from update file
-	if (fread(&expected_idcode, sizeof(uint32_t), 1, u.f) != 1) { // Couldn't read idcode
+	if (!fread(&expected_idcode, sizeof(uint32_t), 1, u.f)) { // Couldn't read idcode
 		fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
-		return quit(-1);
-	}
-
-	// Print first instructions text from update file
-	while (1) {
-		int c = fgetc(u.f);
-		if (c == EOF || c == 0) { break; }
-		else { fputc(c, stderr); }
-	}
-
-	getchar();
-
-	comsearch(portname);
-
-	// Print second instructions text from update file
-	while (1) {
-		int c = fgetc(u.f);
-		if (c == EOF || c == 0) { break; }
-		else { fputc(c, stderr); }
-	}
-
-	getchar();
-
-	// Find COM port
-	if ((portnum = compick(portname)) <= 0) {
-		fprintf(stderr, "Error! Could not find USB device.\n");
 		return quit(-1);
 	}
 

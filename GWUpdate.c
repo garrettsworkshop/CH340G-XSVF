@@ -316,7 +316,7 @@ static void copyleft()
 char strbuf[STRBUF_SIZE];
 
 int check_boardid_digit(int(*get)(), boardid_digit_t expected) {
-	if (expected == BOARDID_DIGIT_DONTCARE) { return 0;  }
+	if (expected == BOARDID_DIGIT_DONTCARE) { return 0; }
 
 	int id;
 	io_tms(0);
@@ -336,7 +336,7 @@ int check_boardid_digit(int(*get)(), boardid_digit_t expected) {
 	else { return -1; }
 }
 
-int read_boardid_digit(FILE *f, boardid_digit_t *digit, char *name) {
+int read_boardid_digit(FILE* f, boardid_digit_t* digit, char* name) {
 	if (!fread(digit, sizeof(boardid_digit_t), 1, f)) {
 		fprintf(stderr, "Error! Could not read boardid digit %s from update file.\n", name);
 		return -1;
@@ -374,7 +374,7 @@ int main(int argc, char** argv)
 #ifndef _DEBUG
 	u.f = fopen(argv[0], "rb");
 #else
-	u.f = fopen("Packager/GWUpdate_out.exe", "rb");
+	u.f = fopen("Combiner/GWUpdate_combined.exe", "rb");
 #endif
 
 	if (!u.f) {
@@ -410,16 +410,16 @@ int main(int argc, char** argv)
 		break;
 	}
 
-	// Read number of updates from file
+	// Read number of update images from update file
 	uint32_t num_updates;
 	if (!fread(&num_updates, sizeof(uint32_t), 1, u.f)) { // Couldn't read idcode
-		fprintf(stderr, "Error! Couldn't read number of update images from file.\n");
+		fprintf(stderr, "Error! Couldn't read number of firmware images in update file.\n");
 		return quit(-1);
 	}
 
-	// Fail if number of updates isn't 1
-	if (num_updates != 1) {
-		fprintf(stderr, "Error! More than one update image per file not currently supported.\n");
+	// Fail if number of updates is 0
+	if (num_updates == 0) {
+		fprintf(stderr, "Error! No firmware images found in update file.\n");
 		return quit(-1);
 	}
 
@@ -448,87 +448,111 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	// Get (X)SVF file type flag
-	int c[4];
-	for (int i = 0; i < 4; i++) { c[i] = fgetc(u.f); }
+	// Check each update until one with matching boardid and IDCODE
+	uint32_t fwsize = 0;
+	int matched_board = 0;
+	for (uint32_t update_index = 0; update_index < num_updates; update_index++) {
+		// Get (X)SVF file type flag
+		int c[4];
+		for (int i = 0; i < 4; i++) { c[i] = fgetc(u.f); }
 
-	// Check update file type - SVF or XSVF
-	if (c[0] == 'X') { mode = LIBXSVF_MODE_XSVF; } // First 'X' for XSVF
-	else if (c[0] == ' ') { mode = LIBXSVF_MODE_SVF; } // First ' ' for SVF
-	else { c[1] = EOF; }
-	if ((c[1] != 'S') || (c[2] != 'V') || (c[3] != 'F')) {
-		fprintf(stderr, "Error! Unsupported update format.\n");
-		return quit(-1);
+		// Check update file type - SVF or XSVF
+		if (c[0] == 'X') { mode = LIBXSVF_MODE_XSVF; } // First 'X' for XSVF
+		else if (c[0] == ' ') { mode = LIBXSVF_MODE_SVF; } // First ' ' for SVF
+		else { c[1] = EOF; }
+		if ((c[1] != 'S') || (c[2] != 'V') || (c[3] != 'F')) {
+			fprintf(stderr, "Error! Unsupported firmware image format.\n");
+			return quit(-1);
+		}
+
+		// Get boardid digits
+		boardid_digit_t boardid_dsr;
+		boardid_digit_t boardid_ri;
+		boardid_digit_t boardid_dcd;
+		boardid_digit_t boardid_reserved;
+		if (read_boardid_digit(u.f, &boardid_dsr, "DSR")) { quit(-1); }
+		if (read_boardid_digit(u.f, &boardid_ri, "RI")) { quit(-1); }
+		if (read_boardid_digit(u.f, &boardid_dcd, "DCD")) { quit(-1); }
+		if (read_boardid_digit(u.f, &boardid_reserved, "reserved")) { quit(-1); }
+
+		// Get expected bit count from update file
+		if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {
+			fprintf(stderr, "Error! Could not read expected bit count from update image.\n");
+			return quit(-1);
+		}
+
+		// Read number of devices on JTAG chain
+		if (!fread(&expected_devices, sizeof(uint32_t), 1, u.f)) {
+			fprintf(stderr, "Error! Could not read JTAG device count from update image.\n");
+			return quit(-1);
+		}
+
+		// Fail if number of devices isn't 1
+		if (expected_devices > 1) {
+			fprintf(stderr, "Error! Update image has multiple devices on JTAG chain but GWUpdate only supports one device.\n");
+			return quit(-1);
+		}
+		else if (expected_devices == 0) {
+			fprintf(stderr, "Error! Update image has no devices on JTAG chain.\n");
+			return quit(-1);
+		}
+		found_devices = 0; // Reset found devices
+
+		// Read single expected IDCODE from update file
+		if (!fread(&expected_idcode, sizeof(uint32_t), 1, u.f)) { // Couldn't read idcode
+			fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
+			return quit(-1);
+		}
+
+		// Read update image length from update file
+		if (!fread(&fwsize, sizeof(uint32_t), 1, u.f)) { // Couldn't read length
+			fprintf(stderr, "Error! Couldn't read firmware image length from file.\n");
+			return quit(-1);
+		}
+
+		// Checking board ID...
+		fprintf(stderr, "Checking board id...\n");
+
+		// Check for expected board ID
+		io_setup();
+		if (check_boardid_digit(io_dsr, boardid_dsr) ||
+			check_boardid_digit(io_ri, boardid_ri) ||
+			check_boardid_digit(io_dcd, boardid_dcd)) {
+			goto wrong_type;
+			io_shutdown();
+		}
+		io_shutdown();
+
+		// Scan JTAG chain
+		cur_mode = LIBXSVF_MODE_SCAN;
+		if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
+			fprintf(stderr, "Error! Failed to scan JTAG chain.\n");
+			return quit(-1);
+		}
+
+		// Check for expected IDCODE
+		if (expected_idcode != 0 && 
+			expected_idcode != -1 &&
+			expected_idcode != found_idcode) { goto wrong_type; }
+
+		// If everything is good, break out of the loop
+		fwsize = 1;
+		break;
+
+	wrong_type:
+		// Fast-forward through update (X)SVF
+		fseek(u.f, fwsize, SEEK_CUR);
+		continue; // Try again
 	}
 
-	// Get boardid digits
-	boardid_digit_t boardid_dsr;
-	boardid_digit_t boardid_ri;
-	boardid_digit_t boardid_dcd;
-	boardid_digit_t boardid_reserved;
-	if (read_boardid_digit(u.f, &boardid_dsr, "DSR")) { quit(-1); }
-	if (read_boardid_digit(u.f, &boardid_ri, "RI")) { quit(-1); }
-	if (read_boardid_digit(u.f, &boardid_dcd, "DCD")) { quit(-1); }
-	if (read_boardid_digit(u.f, &boardid_reserved, "reserved")) { quit(-1); }
-
-	// Get expected bit count from update file
-	if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {
-		fprintf(stderr, "Error! Could not read expected bit count from update file.\n");
+	if (!matched_board || fwsize == 0) {
+		fprintf(stderr, "Error! Firmware update is not compatible with this board.\n");
 		return quit(-1);
 	}
-
-	// Read number of devices on JTAG chain
-	if (!fread(&expected_devices, sizeof(uint32_t), 1, u.f)) {
-		fprintf(stderr, "Error! Could not read JTAG device count from update file.\n");
-		return quit(-1);
-	}
-
-	// Fail if number of devices isn't 1
-	if (expected_devices > 1) {
-		fprintf(stderr, "Error! Update file has multiple devices on JTAG chain but GWUpdate only supports one device.\n");
-		return quit(-1);
-	}
-	else if (expected_devices == 0) {
-		fprintf(stderr, "Error! Update file has no devices on JTAG chain.\n");
-		return quit(-1);
-	}
-	found_devices = 0; // Reset found devices
-
-	// Read single expected IDCODE from update file
-	if (!fread(&expected_idcode, sizeof(uint32_t), 1, u.f)) { // Couldn't read idcode
-		fprintf(stderr, "Error! Couldn't read JTAG idcode from file.\n");
-		return quit(-1);
-	}
-
-	// Checking board ID...
-	fprintf(stderr, "Checking board id...\n");
-
-	// Check for expected board ID
-	io_setup();
-	if (check_boardid_digit(io_dsr, boardid_dsr) ||
-		check_boardid_digit(io_ri, boardid_ri) ||
-		check_boardid_digit(io_dcd, boardid_dcd)) {
-		fprintf(stderr, "Error! Wrong board ID.\n");
-		return quit(-1);
-	}
-	io_shutdown();
 
 	// Start elapsed time timer
 	SetupTicks();
 	start = GetTicksNow();
-
-	// Scan JTAG chain
-	cur_mode = LIBXSVF_MODE_SCAN;
-	if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
-		fprintf(stderr, "Error! Failed to scan JTAG chain.\n");
-		return quit(-1);
-	}
-
-	// Check for expected IDCODE
-	if (expected_idcode != 0 && expected_idcode != found_idcode) {
-		fprintf(stderr, "Error! Incorrect device found on JTAG chain.\n");
-		return quit(-1);
-	}
 
 	// Enable fast mode
 	fast_enable = 1;

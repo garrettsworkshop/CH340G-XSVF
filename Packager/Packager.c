@@ -238,5 +238,12 @@ int main(int argc, char** argv)
 	// Write (X)SVF image
 	writebin(out_file, update_file);
 
+	// Close files
+	fclose(out_file);
+	fclose(update_file);
+	fclose(gwupdate_file);
+	if (inst2_file) { fclose(inst2_file); }
+	if (inst1_file) { fclose(inst1_file); }
+
 	return 0;
 }

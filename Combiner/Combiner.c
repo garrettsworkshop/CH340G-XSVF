@@ -140,6 +140,10 @@ int main(int argc, char** argv)
 			return -1;
 		}
 
+		// Close this input file
 		fclose(in_file);
 	}
+
+	// Close output file
+	fclose(out_file);
 }

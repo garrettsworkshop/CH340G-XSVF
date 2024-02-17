@@ -8,30 +8,41 @@
 #include <stdio.h>
 #include "boardid.h"
 
-#define BUF_SIZE (65536)
+#define LEN128K (128 * 1024)
+char buf[LEN128K];
 
-char buf[BUF_SIZE];
+static int writebin(FILE* to, FILE* from) {
+	size_t count;
+	do {
+		count = fread(buf, 1, LEN128K, from);
+		if (count != 0) {
+			if (fwrite(buf, 1, count, to) != count) { return -1; }
+		}
+	} while (count != 0);
+	return 0;
+}
 
-static void pad128k(FILE* to) {
+static int pad128k(FILE* to) {
 #define MASK (128 * 1024 - 1)
 	long baselength = ftell(to);
 	long insertpos = (baselength + MASK) & (~MASK);
 	long padding = insertpos - baselength;
-	memset(buf, 0, BUF_SIZE);
+	memset(buf, 0, LEN128K);
 	while (padding > 0) {
-		if (padding > BUF_SIZE) {
-			fwrite(buf, 1, BUF_SIZE, to);
-			padding -= BUF_SIZE;
+		if (padding > LEN128K) {
+			if (fwrite(buf, 1, LEN128K, to) != LEN128K) { return -1; }
+			padding -= LEN128K;
 		}
 		else {
-			fwrite(buf, 1, padding, to);
+			if (fwrite(buf, 1, padding, to) != padding) { return -1; }
 			padding = 0;
 		}
 	}
+	return 0;
 }
 
 static void writestr(FILE* to, FILE* from) {
-	size_t count = fread(buf, 1, BUF_SIZE, from);
+	size_t count = fread(buf, 1, LEN128K, from);
 	if (count == 0) {
 		buf[0] = 0;
 		fwrite(buf, 1, 1, to);
@@ -45,7 +56,7 @@ static void writestr(FILE* to, FILE* from) {
 			}
 		}
 		fwrite(buf, 1, count, to);
-		size_t newcount = fread(buf, 1, BUF_SIZE, from);
+		size_t newcount = fread(buf, 1, LEN128K, from);
 
 		if (newcount == 0) {
 			if (buf[count - 1] != 0) {
@@ -58,15 +69,7 @@ static void writestr(FILE* to, FILE* from) {
 	}
 }
 
-static void writebin(FILE* to, FILE* from) {
-	size_t count;
-	do {
-		count = fread(buf, 1, BUF_SIZE, from);
-		if (count != 0) { fwrite(buf, 1, count, to); }
-	} while (count != 0);
-}
-
-boardid_digit_t parse_boardid_digit(char *digit, char *fail_message) {
+boardid_digit_t parse_boardid_digit(const char *digit, const char *fail_message) {
 	boardid_digit_t ret;
 	if (boardid_from_char(digit[0], &ret)) {
 		fputs(fail_message, stderr);
@@ -84,11 +87,11 @@ int main(int argc, char** argv)
 	boardid_digit_t boardid_dcd;
 	uint32_t idcode;
 
-	char* inst1;
-	char* inst2;
-	char* update_name;
-	char* gwupdate_name;
-	char* out_name;
+	const char* inst1;
+	const char* inst2;
+	const char* update_name;
+	const char* gwupdate_name;
+	const char* out_name;
 	char is_xsvf = 0;
 
 	FILE* gwupdate_file;
@@ -138,7 +141,7 @@ int main(int argc, char** argv)
 		}
 	}
 	else {
-		fputs("Usage: gwupkg "
+		fputs("Usage: Packager "
 			"<EXPECTED_LENGTH> "
 			"<BOARDID_DSR> "
 			"<BOARDID_RI> "
@@ -170,9 +173,15 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	writebin(out_file, gwupdate_file);
+	if (writebin(out_file, gwupdate_file)) {
+		fputs("Error! Could not copy GWUpdate executable to output file.\n", stderr);
+		return -1;
+	}
 
-	pad128k(out_file);
+	if (pad128k(out_file)) {
+		fputs("Error! Could not pad output file.\n", stderr);
+		return -1;
+	}
 
 	// Write update file signature
 	buf[0] = 'U';
@@ -180,6 +189,18 @@ int main(int argc, char** argv)
 	buf[2] = 'D';
 	buf[3] = '8';
 	fwrite(buf, 1, 4, out_file);
+
+	// Write number of updates (only 1 supported)
+	uint32_t num_updates = 1;
+	fwrite(&num_updates, sizeof(uint32_t), 1, out_file);
+
+	// Write instructions 1
+	if (inst1_file) { writestr(out_file, inst1_file); }
+	else { fputs(inst1, out_file); fputc(0, out_file); }
+
+	// Write instructions 2
+	if (inst2_file) { writestr(out_file, inst2_file); }
+	else { fputs(inst2, out_file); fputc(0, out_file); }
 
 	// Write update file type
 	buf[0] = is_xsvf ? 'X' : ' ';
@@ -205,17 +226,17 @@ int main(int argc, char** argv)
 	// Write first (and only) device IDCODE
 	fwrite(&idcode, sizeof(uint32_t), 1, out_file);
 
-	// Write instructions 1
-	if (inst1_file) { writestr(out_file, inst1_file); }
-	else { fputs(inst1, out_file); fputc(0, out_file); }
+	// Compute and write update length
+	uint32_t length = 0;
+	// Get length of update_file
+	fseek(update_file, 0L, SEEK_END);
+	length += ftell(update_file);
+	rewind(update_file);
+	// Write update length
+	fwrite(&length, sizeof(uint32_t), 1, out_file);
 
-	// Write instructions 2
-	if (inst2_file) { writestr(out_file, inst2_file); }
-	else { fputs(inst2, out_file); fputc(0, out_file); }
-
-	// Write (X)SVF
-	if (is_xsvf) { writebin(out_file, update_file); }
-	else { writestr(out_file, update_file); }
+	// Write (X)SVF image
+	writebin(out_file, update_file);
 
 	return 0;
 }

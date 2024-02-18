@@ -8,7 +8,7 @@
 #define _CH340G_HAL_H
 
 #include "gwu_time.h"
-#include "gwu_quit.h"
+#include "gwu_console.h"
 
 #define CLKCHAR_1 0x00 // 00000000 -> ...10111111111...
 #define CLKCHAR_2 0x40 // 01000000 -> ...10101111111...

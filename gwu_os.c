@@ -1,4 +1,4 @@
-#include "gwu_driver.h"
+#include "gwu_os.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <Windows.h>
@@ -33,7 +33,7 @@ int driver_check() {
 	si.hStdError = err_wr;
 
 	// Start pnputil enumerate command
-	HANDLE process = CreateProcessA(
+	if (!CreateProcessA(
 		NULL, // application name
 		cmdLine, // command line
 		NULL, // process attrs
@@ -42,10 +42,7 @@ int driver_check() {
 		0, // creation flags
 		NULL, // environment variables
 		NULL, // current directory
-		&si, &pi);
-
-	// Fail if can't start process
-	if (!process) { return 0; }
+		&si, &pi)) { return 0; }
 
 	// Wait for process to exit
 	WaitForSingleObject(pi.hProcess, INFINITE);
@@ -63,7 +60,7 @@ int driver_check() {
 	CloseHandle(err_rd);
 	CloseHandle(err_wr);
 
-	for (int i = 0; i < bytes_read; i++) {
+	for (unsigned int i = 0; i < bytes_read; i++) {
 		buf[i] = toupper(buf[i]);
 	}
 
@@ -93,7 +90,7 @@ int driver_install(FILE* driver_src) {
 	// Get temp file name
 	char temp_file_name[MAX_PATH + 1];
 	GetTempFileNameA(temp_dir_name, "GWU", 0, &temp_file_name);
-	int temp_file_name_length = strlen(temp_file_name);
+	size_t temp_file_name_length = strlen(temp_file_name);
 
 	// Get temp exe name
 	char temp_exe_name[MAX_PATH + 1];
@@ -147,3 +144,11 @@ int driver_install(FILE* driver_src) {
 	return 0;
 }
 
+int os_is_wine() {
+	static const char* (CDECL * pwine_get_version)(void);
+	HMODULE h_ntdll = GetModuleHandleA("ntdll.dll");
+	if (!h_ntdll) { return 0; }
+	pwine_get_version = (void*)GetProcAddress(h_ntdll, "wine_get_version");
+	if (pwine_get_version) { return 1; }
+	else { return 0; }
+}

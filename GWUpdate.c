@@ -30,8 +30,8 @@
 #include <errno.h>
 #include "CH340G-HAL.h"
 #include "gwu_time.h"
-#include "gwu_quit.h"
-#include "gwu_driver.h"
+#include "gwu_console.h"
+#include "gwu_os.h"
 #include "boardid.h"
 
 #define LEN128K (128 * 1024)
@@ -283,14 +283,14 @@ static void copyleft()
 	fprintf(stderr, "Lib(X)SVF is free software licensed under the ISC license.\n");
 	fprintf(stderr, "GWUpdate is free software licensed under the ISC license.\n\n");
 	fprintf(stderr, "Loading...");
-#ifndef _DEBUG
 	for (int i = 0; i < 10; i++) {
 		fputc('.', stderr);
+#ifndef _DEBUG
 		Sleep(800);
-	}
 #else
-	Sleep(1000);
+		Sleep(200);
 #endif
+	}
 	if (enable_vt) {
 		fputc('\n', stderr);
 		for (int i = 0; i < 9; i++) { fprintf(stderr, "\033[0K\033[1A"); }
@@ -323,13 +323,39 @@ int check_boardid_digit(int(*get)(), boardid_digit_t expected) {
 	else { return -1; }
 }
 
-int read_boardid_digit(FILE* f, boardid_digit_t* digit, char* name) {
+int read_boardid_digit(FILE* f, boardid_digit_t* digit, int index) {
 	if (!fread(digit, sizeof(boardid_digit_t), 1, f)) {
-		fprintf(stderr, "Error! Could not read boardid digit %s from update file.\n", name);
+		switch (index) {
+		case 0: fprintf(stderr, 
+			"Error! Could not read boardid digit DSR from update image.\n");
+			break;
+		case 1: fprintf(stderr, 
+			"Error! Could not read boardid digit RI from update image.\n");
+			break;
+		case 2: fprintf(stderr, 
+			"Error! Could not read boardid digit DCD from update image.\n");
+			break;
+		case 3: fprintf(stderr, 
+			"Error! Could not read boardid digit from update image.\n");
+			break;
+		}
 		return -1;
 	}
 	else if (boardid_digit_invalid(*digit)) {
-		fprintf(stderr, "Error! Invalid boardid digit %s.\n", name);
+		switch (index) {
+		case 0: fprintf(stderr, 
+			"Error! Invalid boardid digit DSR in update image.\n");
+			break;
+		case 1: fprintf(stderr, 
+			"Error! Invalid boardid digit RI in update image.\n");
+			break;
+		case 2: fprintf(stderr, 
+			"Error! Invalid boardid digit DCD in update image.\n");
+			break;
+		case 3: fprintf(stderr, 
+			"Error! Invalid boardid digit in update image.\n");
+			break;
+		}
 		return -1;
 	}
 	return 0;
@@ -340,18 +366,9 @@ int main(int argc, char** argv)
 	enum libxsvf_mode mode;
 	int portnum;
 
-	// Disable console echo
-	HANDLE h_stdin = GetStdHandle(STD_INPUT_HANDLE);
-	DWORD console_mode = 0;
-	GetConsoleMode(h_stdin, &console_mode);
-	SetConsoleMode(h_stdin, console_mode & (~ENABLE_ECHO_INPUT));
-
-	// Enable ASCII terminal control codes
-	HANDLE hConsole = GetStdHandle(STD_ERROR_HANDLE);
-	DWORD consoleMode;
-	GetConsoleMode(hConsole, &consoleMode);
-	consoleMode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
-	if (SetConsoleMode(hConsole, consoleMode)) { enable_vt = 1; }
+	// Set up console
+	console_disable_echo();
+	if (!console_enable_vt()) { enable_vt = 1; }
 	else { enable_vt = 0; }
 
 	// Display copyright message
@@ -468,10 +485,13 @@ int main(int argc, char** argv)
 		boardid_digit_t boardid_ri;
 		boardid_digit_t boardid_dcd;
 		boardid_digit_t boardid_reserved;
-		if (read_boardid_digit(u.f, &boardid_dsr, "DSR")) { quit(-1); }
-		if (read_boardid_digit(u.f, &boardid_ri, "RI")) { quit(-1); }
-		if (read_boardid_digit(u.f, &boardid_dcd, "DCD")) { quit(-1); }
-		if (read_boardid_digit(u.f, &boardid_reserved, "reserved")) { quit(-1); }
+		if (read_boardid_digit(u.f, &boardid_dsr, 0) ||
+			read_boardid_digit(u.f, &boardid_ri, 1) ||
+			read_boardid_digit(u.f, &boardid_dcd, 2) ||
+			read_boardid_digit(u.f, &boardid_reserved, 3)) {
+			fprintf(stderr, "Error! Could not read boardid digits from update image.\n");
+			return quit(-1);
+		}
 
 		// Get expected bit count from update file
 		if (!fread(&expected_bits, sizeof(uint32_t), 1, u.f)) {

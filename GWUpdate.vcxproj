@@ -80,7 +80,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="comsearch.c" />
-    <ClCompile Include="gwu_driver.c" />
+    <ClCompile Include="gwu_console.c" />
+    <ClCompile Include="gwu_os.c" />
     <ClCompile Include="GWUpdate.c" />
     <ClCompile Include="memname.c" />
     <ClCompile Include="play.c" />
@@ -94,11 +95,10 @@
   <ItemGroup>
     <ClInclude Include="boardid.h" />
     <ClInclude Include="CH340G-HAL.h" />
-    <ClInclude Include="gwu_quit.h" />
+    <ClInclude Include="gwu_console.h" />
     <ClInclude Include="gwu_time.h" />
     <ClInclude Include="comsearch.h" />
-    <ClInclude Include="gwu_driver.h" />
-    <ClInclude Include="gwxsvf.h" />
+    <ClInclude Include="gwu_os.h" />
     <ClInclude Include="libxsvf.h" />
     <ClInclude Include="streamtools.h" />
   </ItemGroup>

@@ -4,8 +4,8 @@
 #include <stdio.h>
 #include <errno.h>
 
-#ifndef _CH340G_TIME_H
-#define _CH340G_TIME_H
+#ifndef _GWU_TIME_H
+#define _GWU_TIME_H
 
 LONGLONG ticks_per_gate;
 LONGLONG ticks_per_ms;

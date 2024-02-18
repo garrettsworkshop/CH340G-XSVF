@@ -6,68 +6,10 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "boardid.h"
+#include "../boardid.h"
+#include "../streamtools.h"
 
-#define LEN128K (128 * 1024)
-char buf[LEN128K];
-
-static int writebin(FILE* to, FILE* from) {
-	size_t count;
-	do {
-		count = fread(buf, 1, LEN128K, from);
-		if (count != 0) {
-			if (fwrite(buf, 1, count, to) != count) { return -1; }
-		}
-	} while (count != 0);
-	return 0;
-}
-
-static int pad128k(FILE* to) {
-#define MASK (128 * 1024 - 1)
-	long baselength = ftell(to);
-	long insertpos = (baselength + MASK) & (~MASK);
-	long padding = insertpos - baselength;
-	memset(buf, 0, LEN128K);
-	while (padding > 0) {
-		if (padding > LEN128K) {
-			if (fwrite(buf, 1, LEN128K, to) != LEN128K) { return -1; }
-			padding -= LEN128K;
-		}
-		else {
-			if (fwrite(buf, 1, padding, to) != padding) { return -1; }
-			padding = 0;
-		}
-	}
-	return 0;
-}
-
-static void writestr(FILE* to, FILE* from) {
-	size_t count = fread(buf, 1, LEN128K, from);
-	if (count == 0) {
-		buf[0] = 0;
-		fwrite(buf, 1, 1, to);
-		return;
-	}
-	while (1) {
-		for (int i = 0; i < count; i++) {
-			if (buf[i] == 0) {
-				fwrite(buf, 1, i + 1, to);
-				return;
-			}
-		}
-		fwrite(buf, 1, count, to);
-		size_t newcount = fread(buf, 1, LEN128K, from);
-
-		if (newcount == 0) {
-			if (buf[count - 1] != 0) {
-				buf[0] = 0;
-				fwrite(buf, 1, 1, to);
-			}
-			return;
-		}
-		else { count = newcount; }
-	}
-}
+char buf[256];
 
 boardid_digit_t parse_boardid_digit(const char* digit, const char* fail_message) {
 	boardid_digit_t ret;
@@ -91,10 +33,12 @@ int main(int argc, char** argv)
 	const char* inst2;
 	const char* update_name;
 	const char* gwupdate_name;
+	const char* driver_name;
 	const char* out_name;
 	char is_xsvf = 0;
 
 	FILE* gwupdate_file;
+	FILE* driver_file = NULL;
 	FILE* update_file;
 	FILE* inst1_file = NULL;
 	FILE* inst2_file = NULL;
@@ -111,9 +55,10 @@ int main(int argc, char** argv)
 		update_name = "../update.svf";
 		is_xsvf = 0;
 		gwupdate_name = "../x64/Release/GWUpdate.exe";
+		driver_name = "../Driver/CH341SER.exe";
 		out_name = "GWUpdate_out.exe";
 	}
-	else if (argc == 11) {
+	else if (argc == 12) {
 		expected_bits = strtol(argv[1], NULL, 10);
 		boardid_dsr = parse_boardid_digit(argv[2], "Error! Bad BOARDID_DSR.");
 		boardid_ri = parse_boardid_digit(argv[3], "Error! Bad BOARDID_RI.\n");
@@ -123,7 +68,8 @@ int main(int argc, char** argv)
 		inst2 = argv[7];
 		update_name = argv[8];
 		gwupdate_name = argv[9];
-		out_name = argv[10];
+		driver_name = argv[10];
+		out_name = argv[11];
 
 		is_xsvf = (update_name[strlen(update_name) - 4] == 'X') ||
 			(update_name[strlen(update_name) - 4] == 'x');
@@ -151,6 +97,7 @@ int main(int argc, char** argv)
 			"<INSTRUCTIONS2> "
 			"<UPDATE> "
 			"<GWUPDATE> "
+			"<DRIVER> "
 			"<OUT>\n", stderr);
 		return -1;
 	}
@@ -159,6 +106,14 @@ int main(int argc, char** argv)
 	if (!gwupdate_file) {
 		fputs("Error! Could not open GWUpdate base executable.\n", stderr);
 		return -1;
+	}
+
+	if (strcmp(driver_name, "nodriver")) {
+		driver_file = fopen(driver_name, "rb");
+		if (!driver_file) {
+			fputs("Error! Could not open driver installer.\n", stderr);
+			return -1;
+		}
 	}
 
 	update_file = fopen(update_name, "rb");
@@ -173,17 +128,45 @@ int main(int argc, char** argv)
 		return -1;
 	}
 
-	if (writebin(out_file, gwupdate_file)) {
+	if (file_writeall(out_file, gwupdate_file)) {
 		fputs("Error! Could not copy GWUpdate executable to output file.\n", stderr);
 		return -1;
 	}
 
-	if (pad128k(out_file)) {
+	if (file_pad128k(out_file)) {
 		fputs("Error! Could not pad output file.\n", stderr);
 		return -1;
 	}
 
-	// Write update file signature
+	// If driver present, copy it
+	if (driver_file) {
+		// Write driver signature "DRVR"
+		buf[0] = 'D';
+		buf[1] = 'R';
+		buf[2] = 'V';
+		buf[3] = 'R';
+		fwrite(buf, 1, 4, out_file);
+
+		// Get driver file length
+		fseek(driver_file, 0L, SEEK_END);
+		uint32_t driver_length = ftell(driver_file);
+		rewind(driver_file);
+
+		// Write driver file length
+		fwrite(&driver_length, sizeof(uint32_t), 1, out_file);
+
+		if (file_writeall(out_file, driver_file)) {
+			fputs("Error! Could not copy driver installer to output file.\n", stderr);
+			return -1;
+		}
+
+		if (file_pad128k(out_file)) {
+			fputs("Error! Could not pad output file.\n", stderr);
+			return -1;
+		}
+	}
+
+	// Write update file signature "UPD8"
 	buf[0] = 'U';
 	buf[1] = 'P';
 	buf[2] = 'D';
@@ -195,11 +178,11 @@ int main(int argc, char** argv)
 	fwrite(&num_updates, sizeof(uint32_t), 1, out_file);
 
 	// Write instructions 1
-	if (inst1_file) { writestr(out_file, inst1_file); }
+	if (inst1_file) { file_writeallstr(out_file, inst1_file); }
 	else { fputs(inst1, out_file); fputc(0, out_file); }
 
 	// Write instructions 2
-	if (inst2_file) { writestr(out_file, inst2_file); }
+	if (inst2_file) { file_writeallstr(out_file, inst2_file); }
 	else { fputs(inst2, out_file); fputc(0, out_file); }
 
 	// Write update file type
@@ -236,7 +219,7 @@ int main(int argc, char** argv)
 	fwrite(&length, sizeof(uint32_t), 1, out_file);
 
 	// Write (X)SVF image
-	writebin(out_file, update_file);
+	file_writeall(out_file, update_file);
 
 	// Close files
 	fclose(out_file);

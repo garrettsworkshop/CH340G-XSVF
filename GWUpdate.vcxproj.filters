@@ -42,6 +42,12 @@
     <ClCompile Include="comsearch.c">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="gwu_driver.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="streamtools.c">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="libxsvf.h">
@@ -50,10 +56,10 @@
     <ClInclude Include="CH340G-HAL.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="CH340G-quit.h">
+    <ClInclude Include="gwu_quit.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="CH340G-time.h">
+    <ClInclude Include="gwu_time.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="comsearch.h">
@@ -62,7 +68,13 @@
     <ClInclude Include="gwxsvf.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="Packager\boardid.h">
+    <ClInclude Include="gwu_driver.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="streamtools.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="boardid.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

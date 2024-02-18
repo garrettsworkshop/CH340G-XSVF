@@ -6,28 +6,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "../streamtools.h"
 
-#define LEN128K (128 * 1024)
-char buf[LEN128K];
-
-static int writebin(FILE* to, FILE* from) {
-	size_t count;
-	do {
-		count = fread(buf, 1, LEN128K, from);
-		if (count != 0) {
-			if (fwrite(buf, 1, count, to) != count) { return -1; }
-		}
-	} while (count != 0);
-	return 0;
-}
-
-static int copy128k(FILE* to, FILE* from) {
-	size_t readcount = fread(buf, 1, LEN128K, from);
-	if (readcount != LEN128K) { return -1; }
-	size_t writecount = fwrite(buf, 1, LEN128K, to);
-	if (readcount != writecount) { return -1; }
-	else { return 0; }
-}
+char buf[256];
 
 int main(int argc, char** argv)
 {
@@ -39,7 +20,7 @@ int main(int argc, char** argv)
 
 	// Open output file
 	FILE* out_file;
-	if (defaults) { 
+	if (defaults) {
 		out_file = fopen("GWUpdate_combined.exe", "wb");
 		argc = 4;
 	}
@@ -89,11 +70,9 @@ int main(int argc, char** argv)
 		if (i == 2) {
 			// Copy everything before embedded update file
 			rewind(in_file);
-			for (int j = 0; j < update_index; j++) {
-				if (copy128k(out_file, in_file)) {
-					fprintf(stderr, "Error! Failed copying GWUpdate executable to output file.\n");
-					return -1;
-				}
+			if (file_copy128k(out_file, in_file, update_index)) {
+				fprintf(stderr, "Error! Failed copying GWUpdate executable to output file.\n");
+				return -1;
 			}
 
 			// Write update file signature "UPD8"
@@ -113,7 +92,7 @@ int main(int argc, char** argv)
 		}
 
 		// Check input file has just one update image
-		if (num_updates != 1) { 
+		if (num_updates != 1) {
 			fprintf(stderr, "Error! Input file has multiple update images.\n");
 			return -1;
 		}
@@ -122,20 +101,22 @@ int main(int argc, char** argv)
 			// Write number of updates into output file
 			num_updates = argc - 2;
 			fwrite(&num_updates, sizeof(uint32_t), 1, out_file);
-		} else {
+		}
+		else {
 			// Skip instructions 1 and 2
 			for (int j = 0; j < 2; j++) {
 				while (1) {
 					c = fgetc(in_file);
 					if (c == EOF) {
 						fprintf(stderr, "Error! EOF during instructions %i.\n", j);
-					} else if (c == 0) { break; }
+					}
+					else if (c == 0) { break; }
 				}
 			}
 		}
 
 		// Write remainder of update to output file
-		if (writebin(out_file, in_file)) {
+		if (file_writeall(out_file, in_file)) {
 			fprintf(stderr, "Error! Failed to write input file to output file.\n");
 			return -1;
 		}

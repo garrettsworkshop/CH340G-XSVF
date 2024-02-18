@@ -23,16 +23,16 @@
 #include "libxsvf.h"
 #include "comsearch.h"
 
-#include <Windows.h>
 #include <stdint.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <errno.h>
 #include "CH340G-HAL.h"
-#include "CH340G-time.h"
-#include "CH340G-quit.h"
-#include "Packager/boardid.h"
+#include "gwu_time.h"
+#include "gwu_quit.h"
+#include "gwu_driver.h"
+#include "boardid.h"
 
 #define LEN128K (128 * 1024)
 
@@ -125,10 +125,14 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 	if (usecs > 0) { Sleep((usecs + 999) / 1000); }
 }
 
+int getbyte_limit = 0;
+int getbyte_cur = 0;
 static int h_getbyte(struct libxsvf_host* h)
 {
+	if (getbyte_cur >= getbyte_limit) { return EOF; }
 	struct udata_s* u = h->user_data;
-	char c = fgetc(u->f);
+	int c = fgetc(u->f);
+	getbyte_cur++;
 	return c;
 }
 
@@ -187,7 +191,6 @@ static void* h_realloc(struct libxsvf_host* h, void* ptr, int size, enum libxsvf
 	return realloc(ptr, size);
 }
 
-static int fast_enable = 0;
 static int tms_old = -1;
 static int tdi_old = -1;
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
@@ -197,23 +200,7 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 	u->clockcount++;
 	if (tdi >= 0) { u->bitcount_tdi++; }
 
-	if (!fast_enable) {
-		u->sendcount++;
-		io_tms(tms);
-		io_tdi(tdi);
-		Sleep(1);
-		if (!EscapeCommFunction(serialport, SETBREAK)) { goto error; }
-		Sleep(1);
-		if (!EscapeCommFunction(serialport, CLRBREAK)) { goto error; }
-		Sleep(1);
-		int line_tdo = io_tdo();
-		return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
-	error:
-		fprintf(stderr, "Error enabling COM port break condition!\n");
-		quit(-1);
-		return -1;
-	}
-	else if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
+	if (!sync && tdo < 0 && tms == tms_old && (tdi == tdi_old || tdi < 0) && tck_queue < 255) {
 		tck_queue++;
 		return 1;
 	}
@@ -353,6 +340,12 @@ int main(int argc, char** argv)
 	enum libxsvf_mode mode;
 	int portnum;
 
+	// Disable console echo
+	HANDLE h_stdin = GetStdHandle(STD_INPUT_HANDLE);
+	DWORD console_mode = 0;
+	GetConsoleMode(h_stdin, &console_mode);
+	SetConsoleMode(h_stdin, console_mode & (~ENABLE_ECHO_INPUT));
+
 	// Enable ASCII terminal control codes
 	HANDLE hConsole = GetStdHandle(STD_ERROR_HANDLE);
 	DWORD consoleMode;
@@ -388,26 +381,31 @@ int main(int argc, char** argv)
 		return quit(-1);
 	}
 
-	// Find embedded update file
-	for (int i = 1; ; i++) { // Search at each 128k offset for UPD8 signature
-		if (i > 255) { // Looked too many times fail
-			fprintf(stderr, "Error! Update file signature not found.\n");
-			return quit(-1);
+	// Find embedded driver file
+	char sig[4];
+	sig[0] = 'D';
+	sig[1] = 'R';
+	sig[2] = 'V';
+	sig[3] = 'R';
+	if (file_search128k(u.f, sig)) {
+		// Check for driver and install it not currently present
+		if (!driver_check()) {
+			fprintf(stderr, "Installing driver...");
+			if (driver_install(u.f)) {
+				fprintf(stderr, "Error! Failed to install driver.\n");
+				return quit(-1);
+			}
 		}
-		if (fseek(u.f, i * LEN128K, SEEK_SET)) { // Seek past end of file fail
-			fprintf(stderr, "Error! Seeked past end of file looking for update file signature.\n");
-			return quit(-1);
-		}
+	}
 
-		char c = fgetc(u.f);
-		if (c != 'U') { continue; }
-		c = fgetc(u.f);
-		if (c != 'P') { continue; }
-		c = fgetc(u.f);
-		if (c != 'D') { continue; }
-		c = fgetc(u.f);
-		if (c != '8') { continue; }
-		break;
+	// Find embedded update file and fail if not found
+	sig[0] = 'U';
+	sig[1] = 'P';
+	sig[2] = 'D';
+	sig[3] = '8';
+	if (!file_search128k(u.f, sig)) {
+		fprintf(stderr, "Error! Update file signature not found.\n");
+		return quit(-1);
 	}
 
 	// Read number of update images from update file
@@ -429,7 +427,7 @@ int main(int argc, char** argv)
 		if (c == EOF || c == 0) { break; }
 		else { fputc(c, stderr); }
 	}
-	getchar(); // Wait for enter key
+	get_enter(); // Wait for enter key
 
 	// Enumerate COM ports
 	comsearch(portname);
@@ -440,7 +438,7 @@ int main(int argc, char** argv)
 		if (c == EOF || c == 0) { break; }
 		else { fputc(c, stderr); }
 	}
-	getchar(); // Wait for enter key
+	get_enter(); // Wait for enter key
 
 	// Pick COM port
 	if ((portnum = compick(portname)) <= 0) {
@@ -518,8 +516,8 @@ int main(int argc, char** argv)
 		if (check_boardid_digit(io_dsr, boardid_dsr) ||
 			check_boardid_digit(io_ri, boardid_ri) ||
 			check_boardid_digit(io_dcd, boardid_dcd)) {
-			goto wrong_type;
 			io_shutdown();
+			goto wrong_type;
 		}
 		io_shutdown();
 
@@ -531,31 +529,37 @@ int main(int argc, char** argv)
 		}
 
 		// Check for expected IDCODE
-		if (expected_idcode != 0 && 
+		if (expected_idcode != 0 &&
 			expected_idcode != -1 &&
-			expected_idcode != found_idcode) { goto wrong_type; }
+			expected_idcode != found_idcode) {
+			goto wrong_type;
+		}
 
 		// If everything is good, break out of the loop
 		fwsize = 1;
 		break;
 
 	wrong_type:
-		// Fast-forward through update (X)SVF
-		fseek(u.f, fwsize, SEEK_CUR);
+		// Fast-forward through update (X)SVF if not last update
+		if (update_index != num_updates - 1) {
+			fseek(u.f, fwsize, SEEK_CUR);
+		}
 		continue; // Try again
 	}
 
-	if (!matched_board || fwsize == 0) {
+	// Fail if no boards matched
+	if (!matched_board) {
 		fprintf(stderr, "Error! Firmware update is not compatible with this board.\n");
 		return quit(-1);
 	}
 
+	// Set firmware size limit
+	getbyte_cur = 0;
+	getbyte_limit = fwsize;
+
 	// Start elapsed time timer
 	SetupTicks();
 	start = GetTicksNow();
-
-	// Enable fast mode
-	fast_enable = 1;
 
 	// Play update (X)SVF
 	fputc('\n', stderr);

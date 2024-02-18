@@ -80,23 +80,27 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="comsearch.c" />
+    <ClCompile Include="gwu_driver.c" />
     <ClCompile Include="GWUpdate.c" />
     <ClCompile Include="memname.c" />
     <ClCompile Include="play.c" />
     <ClCompile Include="scan.c" />
     <ClCompile Include="statename.c" />
+    <ClCompile Include="streamtools.c" />
     <ClCompile Include="svf.c" />
     <ClCompile Include="tap.c" />
     <ClCompile Include="xsvf.c" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="boardid.h" />
     <ClInclude Include="CH340G-HAL.h" />
-    <ClInclude Include="CH340G-quit.h" />
-    <ClInclude Include="CH340G-time.h" />
+    <ClInclude Include="gwu_quit.h" />
+    <ClInclude Include="gwu_time.h" />
     <ClInclude Include="comsearch.h" />
+    <ClInclude Include="gwu_driver.h" />
     <ClInclude Include="gwxsvf.h" />
     <ClInclude Include="libxsvf.h" />
-    <ClInclude Include="Packager\boardid.h" />
+    <ClInclude Include="streamtools.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

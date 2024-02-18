@@ -4,13 +4,17 @@
 #include <stdio.h>
 #include <errno.h>
 
-#ifndef _CH340G_QUIT_H
-#define _CH340G_QUIT_H
+#ifndef _GWU_QUIT_H
+#define _GWU_QUIT_H
+
+static void get_enter() {
+	while (getchar() != '\n');
+}
 
 static int quit(int code) {
 	fprintf(stderr, "Press enter to quit.\n");
 	fflush(stderr);
-	getchar();
+	get_enter();
 	exit(code);
 	return code;
 }

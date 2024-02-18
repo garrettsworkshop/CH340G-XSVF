@@ -27,7 +27,11 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\streamtools.c" />
     <ClCompile Include="Combiner.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\streamtools.h" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>

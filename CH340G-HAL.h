@@ -7,8 +7,8 @@
 #ifndef _CH340G_HAL_H
 #define _CH340G_HAL_H
 
-#include "CH340G-time.h"
-#include "CH340G-quit.h"
+#include "gwu_time.h"
+#include "gwu_quit.h"
 
 #define CLKCHAR_1 0x00 // 00000000 -> ...10111111111...
 #define CLKCHAR_2 0x40 // 01000000 -> ...10101111111...
@@ -170,9 +170,11 @@ static void io_shutdown(void)
 {
 	Wait();
 	Wait();
+	Sleep(100);
 	CloseHandle(serialport);
 	Wait();
 	Wait();
+	Sleep(100);
 }
 
 #endif

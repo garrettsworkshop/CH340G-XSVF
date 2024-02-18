@@ -3,8 +3,6 @@
 #include <string.h>
 #include <stdint.h>
 
-
-
 static int comexists(int portnum, char* nameout) {
 	wchar_t wstrbuf[1027];
 	char devname[8];

@@ -1,9 +1,4 @@
-.DS_Store
 *.DS_Store
-*/.DS_Store
-*/*/.DS_Store
-*/*/*/.DS_Store
-*/*/*/*/.DS_Store
 
 *.bak
 *.obj
@@ -33,3 +28,5 @@ Combiner/Debug/*
 Combiner/Release/*
 
 Combiner/*.exe
+/GWUpdate/x64/Debug
+/GWUpdate/x64/Release

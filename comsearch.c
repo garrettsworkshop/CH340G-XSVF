@@ -4,9 +4,8 @@
 #include <stdint.h>
 
 static int comexists(int portnum, char* nameout) {
-	wchar_t wstrbuf[1027];
+	char strbuf[1027];
 	char devname[8];
-	wchar_t wdevname[16];
 
 	devname[0] = 'C';
 	devname[1] = 'O';
@@ -18,8 +17,7 @@ static int comexists(int portnum, char* nameout) {
 	if (portnum < 1 || portnum > 99) { return 0; }
 
 	_itoa(portnum, &devname[3], 10);
-	mbstowcs(wdevname, devname, 6);
-	if (QueryDosDeviceW(wdevname, wstrbuf, 512) > 0) {
+	if (QueryDosDeviceA(devname, strbuf, 512) > 0) {
 		if (nameout) { memcpy(nameout, devname, 6); }
 		return 1;
 	}

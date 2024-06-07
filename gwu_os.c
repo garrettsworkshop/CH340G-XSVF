@@ -6,7 +6,13 @@
 #define BUF_LEN (16 * 1024 * 1024)
 char buf[BUF_LEN + 1];
 
-int driver_check() {
+HANDLE hThread = NULL;
+HANDLE hProcess = NULL;
+HANDLE out_rd = NULL;
+HANDLE out_wr = NULL;
+HANDLE err_rd = NULL;
+HANDLE err_wr = NULL;
+void driver_start_check() {
 	char cmdLine[] = "pnputil /enum-drivers";
 
 	SECURITY_ATTRIBUTES sa = { 0 };
@@ -14,11 +20,9 @@ int driver_check() {
 	sa.lpSecurityDescriptor = NULL;
 	sa.bInheritHandle = TRUE;
 
-	HANDLE out_rd, out_wr, err_rd, err_wr;
-
 	if (!CreatePipe(&out_rd, &out_wr, &sa, 0) ||
 		!CreatePipe(&err_rd, &err_wr, &sa, 0)) {
-		return 0;
+		return;
 	}
 
 	SetHandleInformation(out_rd, HANDLE_FLAG_INHERIT, 0);
@@ -42,19 +46,28 @@ int driver_check() {
 		0, // creation flags
 		NULL, // environment variables
 		NULL, // current directory
-		&si, &pi)) { return 0; }
+		&si, &pi)) {
+		return;
+	}
 
+	hProcess = pi.hProcess;
+	hThread = pi.hThread;
+}
+
+int driver_finish_check() {
 	// Wait for process to exit
-	WaitForSingleObject(pi.hProcess, INFINITE);
+	WaitForSingleObject(hProcess, 500);
 
 	// Read stdout into buffer
 	DWORD bytes_read;
-	if (!ReadFile(out_rd, buf, BUF_LEN, &bytes_read, NULL)) { return 0; }
+	if (!ReadFile(out_rd, buf, BUF_LEN, &bytes_read, NULL)) {
+		return 0;
+	}
 	buf[bytes_read] = 0; // Put null terminator at end
 
 	// Close all handles
-	CloseHandle(pi.hThread);
-	CloseHandle(pi.hProcess);
+	CloseHandle(hThread);
+	CloseHandle(hProcess);
 	CloseHandle(out_rd);
 	CloseHandle(out_wr);
 	CloseHandle(err_rd);
@@ -126,7 +139,7 @@ int driver_install(FILE* driver_src) {
 	if (!ShellExecuteExA(&ei)) { return -1; }
 
 	// Wait for it to finish
-	WaitForSingleObject(ei.hProcess, INFINITE);
+	WaitForSingleObject(ei.hProcess, 5000);
 
 	for (int i = 0; i < 10; i++) {
 		fputc('.', stderr);

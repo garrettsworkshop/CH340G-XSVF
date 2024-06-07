@@ -45,11 +45,11 @@ int main(int argc, char** argv)
 	FILE* out_file;
 
 	if (argc == 1) { // Default arguments
-		expected_bits = 800000;
+		expected_bits = 799341;
 		boardid_dsr = BOARDID_DIGIT_1;
 		boardid_ri = BOARDID_DIGIT_1;
 		boardid_dcd = BOARDID_DIGIT_1;
-		idcode = 0x071280dd; // Altera EPM7128S "Altera97"
+		idcode = 0x020A10DD; // Altera MAX II 240
 		inst1 = "Unplug device.\n";
 		inst2 = "Plug in device.\n";
 		update_name = "../update.svf";

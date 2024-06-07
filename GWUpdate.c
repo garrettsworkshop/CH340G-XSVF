@@ -270,12 +270,14 @@ static void copyleft()
 		" | |  _  / _` || '__|| '__|/ _ \\| __|| __||// __|    \\ \\ /\\ / // _ \\ | '__|| |/ // __|| '_ \\  / _ \\ | '_ \\  \n"
 		" | |_| || (_| || |   | |  |  __/| |_ | |_   \\__ \\     \\ V  V /| (_) || |   |   < \\__ \\| | | || (_) || |_) | \n"
 		"  \\____| \\__,_||_|   |_|   \\___| \\__| \\__|  |___/      \\_/\\_/  \\___/ |_|   |_|\\_\\|___/|_| |_| \\___/ |  __/  \n"
+		//"                                                                                                    |_|    \n");
 		"                    _   _           _       _         ____            _                             |_|    \n"
 		"                   | | | |_ __   __| | __ _| |_ ___  / ___| _   _ ___| |_ ___ _ __ ___  \n"
 		"                   | | | | '_ \\ / _` |/ _` | __/ _ \\ \\___ \\| | | / __| __/ _ \\ '_ ` _ \\ \n"
 		"                   | |_| | |_) | (_| | (_| | ||  __/  ___) | |_| \\__ \\ ||  __/ | | | | | \n"
 		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
 		"                         |_|                                |___/                       \n");
+
 	fprintf(stderr, "Copyright (C) 2023 Garrett's Workshop\n");
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
@@ -365,6 +367,10 @@ int main(int argc, char** argv)
 {
 	enum libxsvf_mode mode;
 	int portnum;
+	int driver_installed = 0;
+
+	// Start driver check
+	driver_start_check();
 
 	// Set up console
 	console_disable_echo();
@@ -384,7 +390,7 @@ int main(int argc, char** argv)
 #ifndef _DEBUG
 	u.f = fopen(argv[0], "rb");
 #else
-	u.f = fopen("Combiner/GWUpdate_combined.exe", "rb");
+	u.f = fopen("Packager/GWUpdate_out.exe", "rb");
 #endif
 
 	if (!u.f) {
@@ -406,7 +412,7 @@ int main(int argc, char** argv)
 	sig[3] = 'R';
 	if (file_search128k(u.f, sig)) {
 		// Check for driver and install it not currently present
-		if (!driver_check()) {
+		if (!driver_finish_check()) {
 			fprintf(stderr, "Installing driver...");
 			if (driver_install(u.f)) {
 				fprintf(stderr, "Error! Failed to install driver.\n");
@@ -536,7 +542,6 @@ int main(int argc, char** argv)
 		if (check_boardid_digit(io_dsr, boardid_dsr) ||
 			check_boardid_digit(io_ri, boardid_ri) ||
 			check_boardid_digit(io_dcd, boardid_dcd)) {
-			io_shutdown();
 			goto wrong_type;
 		}
 		io_shutdown();
@@ -556,7 +561,7 @@ int main(int argc, char** argv)
 		}
 
 		// If everything is good, break out of the loop
-		fwsize = 1;
+		matched_board = 1;
 		break;
 
 	wrong_type:

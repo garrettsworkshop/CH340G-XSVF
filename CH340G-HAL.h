@@ -46,19 +46,19 @@ static void io_sendtck(char *buf, int len) {
 	}
 }
 
+char tckbuf[256];
 static void io_tck(unsigned char count) {
-	char send[64];
 	unsigned char fivecount = count / 5;
 	unsigned char remainder = count % 5;
-	memset(send, CLKCHAR_5, fivecount);
 	switch (remainder) {
-	case 1: send[fivecount] = CLKCHAR_1; break;
-	case 2: send[fivecount] = CLKCHAR_2; break;
-	case 3: send[fivecount] = CLKCHAR_3; break;
-	case 4: send[fivecount] = CLKCHAR_4; break;
+	case 1: tckbuf[fivecount] = CLKCHAR_1; break;
+	case 2: tckbuf[fivecount] = CLKCHAR_2; break;
+	case 3: tckbuf[fivecount] = CLKCHAR_3; break;
+	case 4: tckbuf[fivecount] = CLKCHAR_4; break;
 	default: break;
 	}
-	io_sendtck(send, fivecount + (remainder == 0 ? 0 : 1));
+	io_sendtck(tckbuf, fivecount + (remainder == 0 ? 0 : 1));
+	tckbuf[fivecount] = CLKCHAR_5;
 }
 
 static int io_tdo()
@@ -108,6 +108,7 @@ static void io_setup(void)
 	memcpy(name, root, strlen(root));
 	memcpy(name + strlen(root), portname, strlen(portname));
 
+	memset(tckbuf, CLKCHAR_5, 256);
 	SetupTicks();
 
 	serialport = CreateFileA(

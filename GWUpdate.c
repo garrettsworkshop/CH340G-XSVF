@@ -115,15 +115,26 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 {
 	struct udata_s* u = h->user_data;
 
-	if (tck_queue > 0) { flush_tck(); }
+	int flushed = 0;
+
+	if (tck_queue > 0) {
+		flushed = 1;
+		SetGate();
+		flush_tck();
+		Gate();
+	}
+
+	int gatems = (num_tck + 999) / 1000;
 
 	if (num_tck > 0) {
 		io_tms(tms);
-		while (num_tck > 255) {
-			io_tck(255);
-			num_tck -= 255;
+		while (num_tck > 800) {
+			io_tck(800);
+			num_tck -= 800;
 		}
-		io_tck((unsigned char)num_tck);
+		SetGate();
+		io_tck(num_tck);
+		GateMs(gatems);
 	}
 	if (usecs > 0) { Sleep((usecs + 999) / 1000); }
 }
@@ -199,6 +210,8 @@ static void* h_realloc(struct libxsvf_host* h, void* ptr, int size, enum libxsvf
 
 static int tms_old = -1;
 static int tdi_old = -1;
+static int tck_flushed = 1;
+static int tdi_tms_changed = 1;
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
 {
 	struct udata_s* u = h->user_data;
@@ -211,18 +224,17 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 		return 1;
 	}
 	else {
+		int change_tdi_tms = tms != tms_old || (tdi >= 0 && tdi != tdi_old);
+
 		if (tck_queue > 0) {
-			Gate();
 			SetGate();
 			flush_tck();
-			SetGate();
-			Gate();
 			u->sendcount++;
-			if (tms != tms_old || (tdi >= 0 && tdi != tdi_old)) { Gate(); }
+			if (change_tdi_tms) { Gate(); }
 		}
 
 		if (tms != tms_old) {
-			if (tdi < 0 || tdi == tdi_old) { SetGate(); }
+			SetGate();
 			io_tms(tms);
 			tms_old = tms;
 		}
@@ -240,11 +252,11 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 		}
 		else {
 			if (tdo >= 0) { u->bitcount_tdo++; }
-			Gate();
-			SetGate();
+			if (change_tdi_tms) { Gate(); }
+			else { SetGate(); }
 			io_tck(1);
-			u->sendcount++;
 			Gate();
+			u->sendcount++;
 			int line_tdo = io_tdo();
 			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 		}
@@ -330,16 +342,16 @@ int check_boardid_digit(int(*get)(), boardid_digit_t expected) {
 int read_boardid_digit(FILE* f, boardid_digit_t* digit, int index) {
 	if (!fread(digit, sizeof(boardid_digit_t), 1, f)) {
 		switch (index) {
-		case 0: fprintf(stderr, 
+		case 0: fprintf(stderr,
 			"Error! Could not read boardid digit DSR from update image.\n");
 			break;
-		case 1: fprintf(stderr, 
+		case 1: fprintf(stderr,
 			"Error! Could not read boardid digit RI from update image.\n");
 			break;
-		case 2: fprintf(stderr, 
+		case 2: fprintf(stderr,
 			"Error! Could not read boardid digit DCD from update image.\n");
 			break;
-		case 3: fprintf(stderr, 
+		case 3: fprintf(stderr,
 			"Error! Could not read boardid digit from update image.\n");
 			break;
 		}
@@ -347,16 +359,16 @@ int read_boardid_digit(FILE* f, boardid_digit_t* digit, int index) {
 	}
 	else if (boardid_digit_invalid(*digit)) {
 		switch (index) {
-		case 0: fprintf(stderr, 
+		case 0: fprintf(stderr,
 			"Error! Invalid boardid digit DSR in update image.\n");
 			break;
-		case 1: fprintf(stderr, 
+		case 1: fprintf(stderr,
 			"Error! Invalid boardid digit RI in update image.\n");
 			break;
-		case 2: fprintf(stderr, 
+		case 2: fprintf(stderr,
 			"Error! Invalid boardid digit DCD in update image.\n");
 			break;
-		case 3: fprintf(stderr, 
+		case 3: fprintf(stderr,
 			"Error! Invalid boardid digit in update image.\n");
 			break;
 		}

@@ -46,10 +46,10 @@ static void io_sendtck(char *buf, int len) {
 	}
 }
 
-char tckbuf[256];
-static void io_tck(unsigned char count) {
-	unsigned char fivecount = count / 5;
-	unsigned char remainder = count % 5;
+char tckbuf[16385];
+static void io_tck(uint16_t count) {
+	int fivecount = count / 5;
+	int remainder = count % 5;
 	switch (remainder) {
 	case 1: tckbuf[fivecount] = CLKCHAR_1; break;
 	case 2: tckbuf[fivecount] = CLKCHAR_2; break;
@@ -169,12 +169,8 @@ error:
 
 static void io_shutdown(void)
 {
-	Wait();
-	Wait();
 	Sleep(100);
 	CloseHandle(serialport);
-	Wait();
-	Wait();
 	Sleep(100);
 }
 

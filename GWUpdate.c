@@ -114,6 +114,9 @@ static int h_shutdown(struct libxsvf_host* h)
 static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 {
 	struct udata_s* u = h->user_data;
+
+	if (tck_queue > 0) { flush_tck(); }
+
 	if (num_tck > 0) {
 		io_tms(tms);
 		while (num_tck > 255) {

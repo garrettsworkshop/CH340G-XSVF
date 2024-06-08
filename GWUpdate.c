@@ -151,10 +151,13 @@ static void h_report_tapstate(struct libxsvf_host* h)
 	printshortinfo();
 }
 
+static unsigned long idcode_match = 0;
 static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 {
-	printf("Found device on JTAG chain.      IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n",
-		idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
+	if (idcode_match == 0 || idcode_match == -1 || idcode == idcode_match) {
+		printf("Found device on JTAG chain.      IDCODE=0x%08lx, REV=0x%01lx, PART=0x%04lx, MFR=0x%03lx\n",
+			idcode, (idcode >> 28) & 0xf, (idcode >> 12) & 0xffff, (idcode >> 1) & 0x7ff);
+	}
 
 	found_devices++;
 	found_idcode = idcode;
@@ -278,7 +281,7 @@ static void copyleft()
 		"                    \\___/|  __/ \\__,_|\\__,_|\\__\\___| |____/ \\__, |___/\\__\\___|_| |_| |_|\n"
 		"                         |_|                                |___/                       \n");
 
-	fprintf(stderr, "Copyright (C) 2023 Garrett's Workshop\n");
+	fprintf(stderr, "Copyright (C) 2024 Garrett's Workshop\n");
 	fprintf(stderr, "Based on xsvftool-gpio, part of Lib(X)SVF (http://www.clifford.at/libxsvf/).\n");
 	fprintf(stderr, "Copyright (C) 2009  RIEGL Research ForschungsGmbH\n");
 	fprintf(stderr, "Copyright (C) 2009  Clifford Wolf <clifford@clifford.at>\n");
@@ -287,11 +290,7 @@ static void copyleft()
 	fprintf(stderr, "Loading...");
 	for (int i = 0; i < 10; i++) {
 		fputc('.', stderr);
-#ifndef _DEBUG
-		Sleep(800);
-#else
-		Sleep(200);
-#endif
+		Sleep(250);
 	}
 	if (enable_vt) {
 		fputc('\n', stderr);
@@ -482,7 +481,8 @@ int main(int argc, char** argv)
 		else if (c[0] == ' ') { mode = LIBXSVF_MODE_SVF; } // First ' ' for SVF
 		else { c[1] = EOF; }
 		if ((c[1] != 'S') || (c[2] != 'V') || (c[3] != 'F')) {
-			fprintf(stderr, "Error! Unsupported firmware image format.\n");
+			fprintf(stderr, "Error! Unsupported firmware image format: \"");
+
 			return quit(-1);
 		}
 
@@ -534,9 +534,6 @@ int main(int argc, char** argv)
 			return quit(-1);
 		}
 
-		// Checking board ID...
-		fprintf(stderr, "Checking board id...\n");
-
 		// Check for expected board ID
 		io_setup();
 		if (check_boardid_digit(io_dsr, boardid_dsr) ||
@@ -547,6 +544,7 @@ int main(int argc, char** argv)
 		io_shutdown();
 
 		// Scan JTAG chain
+		idcode_match = expected_idcode;
 		cur_mode = LIBXSVF_MODE_SCAN;
 		if (libxsvf_play(&h, LIBXSVF_MODE_SCAN) < 0) {
 			fprintf(stderr, "Error! Failed to scan JTAG chain.\n");
@@ -581,6 +579,12 @@ int main(int argc, char** argv)
 	// Set firmware size limit
 	getbyte_cur = 0;
 	getbyte_limit = fwsize;
+
+	// Reset bit count
+	u.bitcount_tdi = 0;
+	u.bitcount_tdo = 0;
+	u.clockcount = 0;
+	u.sendcount = 0;
 
 	// Start elapsed time timer
 	SetupTicks();

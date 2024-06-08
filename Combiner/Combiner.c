@@ -37,7 +37,7 @@ int main(int argc, char** argv)
 		// Open input file
 		FILE* in_file;
 		if (defaults) { in_file = fopen("../Packager/GWUpdate_out.exe", "rb"); }
-		else { in_file = fopen(argv[2], "rb"); }
+		else { in_file = fopen(argv[i], "rb"); }
 		if (!in_file) {
 			fputs("Error! Couldn't open input file.\n", stderr);
 			return -1;

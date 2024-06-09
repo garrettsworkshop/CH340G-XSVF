@@ -37,7 +37,9 @@ static void io_tdi(int val)
 
 static void io_sendtck(char *buf, int len) {
 	int written;
-	if (!WriteFile(serialport, buf, len, &written, NULL)) {
+	int success = WriteFile(serialport, buf, len, &written, NULL);
+	SetGate();
+	if (!success) {
 		fprintf(stderr, "Error pulsing TCK on %s!\n", portname);
 		quit(-1);
 	}

@@ -21,14 +21,16 @@ static LONGLONG GetTicksNow() {
 }
 
 LONGLONG last;
-char last_set = 0;
 static void SetGate() {
 	last = GetTicksNow();
 }
 static void Gate() {
-	if (!last_set) { SetGate(); }
 	LONGLONG end = last + ticks_per_ms;
-	do { last = GetTicksNow(); } while (last < end);
+	while (GetTicksNow() < end);
+}
+static void Gate2() {
+	LONGLONG end = last + 2 * ticks_per_ms;
+	while (GetTicksNow() < end);
 }
 
 #endif

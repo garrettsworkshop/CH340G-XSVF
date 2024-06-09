@@ -118,7 +118,6 @@ static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 
 	if (tck_queue > 0) {
 		flush_tck();
-		SetGate();
 		Gate();
 	}
 
@@ -229,7 +228,6 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 
 		if (tck_queue > 0) {
 			flush_tck();
-			SetGate();
 			u->sendcount++;
 			Gate();
 		}
@@ -256,9 +254,8 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 		else {
 			if (tdo >= 0) { u->bitcount_tdo++; }
 			io_tck(1);
-			SetGate();
 			u->sendcount++;
-			Gate();
+			Gate2();
 			int line_tdo = io_tdo();
 			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 		}

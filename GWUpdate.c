@@ -71,11 +71,15 @@ void printshortinfo() {
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
 		LONGLONG end = GetTicksNow() - start;
 		double elapsed = (double)end / ticks_per_ms / 1000.0f;
-		if (enable_vt) { fprintf(stderr, "\033[1A\033[K"); }
 		float percent = 100.0f * (float)u.clockcount / expected_bits;
 		if (percent > 100.0f) { percent = 100.0f; }
-		fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
-			percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
+		if (enable_vt) {
+			fprintf(stderr, "\033[1A\033[KUpdate in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
+				percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
+		} else {
+			fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
+				percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
+		}
 	}
 }
 

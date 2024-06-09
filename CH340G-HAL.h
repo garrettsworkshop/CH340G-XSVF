@@ -46,7 +46,8 @@ static void io_sendtck(char *buf, int len) {
 	}
 }
 
-char tckbuf[16385];
+#define TCKBUF_SIZ (32768)
+char tckbuf[TCKBUF_SIZ];
 static void io_tck(uint16_t count) {
 	int fivecount = count / 5;
 	int remainder = count % 5;
@@ -108,7 +109,7 @@ static void io_setup(void)
 	memcpy(name, root, strlen(root));
 	memcpy(name + strlen(root), portname, strlen(portname));
 
-	memset(tckbuf, CLKCHAR_5, 256);
+	memset(tckbuf, CLKCHAR_5, TCKBUF_SIZ);
 	SetupTicks();
 
 	serialport = CreateFileA(

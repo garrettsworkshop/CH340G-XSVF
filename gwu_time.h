@@ -11,7 +11,7 @@ LONGLONG ticks_per_ms;
 static void SetupTicks() {
 	LARGE_INTEGER ticks_per_sec;
 	QueryPerformanceFrequency(&ticks_per_sec);
-	ticks_per_ms = (ticks_per_sec.QuadPart + 999) / 1000;
+	ticks_per_ms = ticks_per_sec.QuadPart / 1000;
 }
 
 static LONGLONG GetTicksNow() {
@@ -28,11 +28,6 @@ static void SetGate() {
 static void Gate() {
 	if (!last_set) { SetGate(); }
 	LONGLONG end = last + ticks_per_ms;
-	do { last = GetTicksNow(); } while (last < end);
-}
-static void GateMs(int ms) {
-	if (!last_set) { SetGate(); }
-	LONGLONG end = last + ms * ticks_per_ms;
 	do { last = GetTicksNow(); } while (last < end);
 }
 

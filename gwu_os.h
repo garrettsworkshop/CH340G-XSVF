@@ -3,7 +3,8 @@
 
 #include <stdio.h>
 
-int driver_check();
+void driver_start_check();
+int driver_finish_check();
 int driver_install(FILE* driver_src);
 int os_is_wine();
 

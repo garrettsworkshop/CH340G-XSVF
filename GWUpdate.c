@@ -32,6 +32,7 @@
 #include "gwu_time.h"
 #include "gwu_console.h"
 #include "gwu_os.h"
+#include "streamtools.h"
 #include "boardid.h"
 
 #define LEN128K (128 * 1024)
@@ -44,13 +45,13 @@ uint32_t expected_bits;
 enum libxsvf_mode cur_mode;
 char enable_vt;
 
-struct udata_s {
+typedef struct udata_s {
 	FILE* f;
 	int clockcount;
 	int bitcount_tdi;
 	int bitcount_tdo;
 	int sendcount;
-};
+} udata_t;
 static struct udata_s u;
 
 LONGLONG start = 0;
@@ -88,7 +89,7 @@ static void flush_tck() {
 static int h_setup(struct libxsvf_host* h)
 {
 	static char printed = 0;
-	struct udata_s* u = h->user_data;
+	udata_t* u = (udata_t*)h->user_data;
 	if (!printed) {
 		fprintf(stderr, "Opening JTAG connection...\n\n");
 		fflush(stderr);
@@ -101,7 +102,7 @@ static int h_setup(struct libxsvf_host* h)
 
 static int h_shutdown(struct libxsvf_host* h)
 {
-	struct udata_s* u = h->user_data;
+	struct udata_s* u = (struct udata_s*)h->user_data;
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
 		fprintf(stderr, "Closing JTAG connection...\n\n");
 		fflush(stderr);
@@ -113,30 +114,29 @@ static int h_shutdown(struct libxsvf_host* h)
 
 static void h_udelay(struct libxsvf_host* h, long usecs, int tms, long num_tck)
 {
-	struct udata_s* u = h->user_data;
-
-	int flushed = 0;
+	udata_t* u = (udata_t*)h->user_data;
 
 	if (tck_queue > 0) {
-		flushed = 1;
-		SetGate();
 		flush_tck();
+		SetGate();
 		Gate();
 	}
 
-	int gatems = (num_tck + 999) / 1000;
-
 	if (num_tck > 0) {
 		io_tms(tms);
-		while (num_tck > 800) {
-			io_tck(800);
-			num_tck -= 800;
-		}
 		SetGate();
-		io_tck(num_tck);
-		GateMs(gatems);
+		Gate();
+		while (num_tck > 65000) {
+			io_tck(65000);
+			num_tck -= 65000;
+			printshortinfo();
+		}
+		io_tck((uint16_t)num_tck);
+		SetGate();
+		printshortinfo();
 	}
 	if (usecs > 0) { Sleep((usecs + 999) / 1000); }
+	else { Gate(); }
 }
 
 int getbyte_limit = 0;
@@ -144,7 +144,7 @@ int getbyte_cur = 0;
 static int h_getbyte(struct libxsvf_host* h)
 {
 	if (getbyte_cur >= getbyte_limit) { return EOF; }
-	struct udata_s* u = h->user_data;
+	udata_t* u = (udata_t*)h->user_data;
 	int c = fgetc(u->f);
 	getbyte_cur++;
 	return c;
@@ -154,7 +154,7 @@ static int h_set_frequency(struct libxsvf_host* h, int v) { return 0; }
 
 static void h_report_tapstate(struct libxsvf_host* h)
 {
-	struct udata_s* u = h->user_data;
+	udata_t* u = (udata_t*)h->user_data;
 	const char* message = libxsvf_state2str(h->tap_state);
 	char newmessage[40];
 	memset(newmessage, ' ', sizeof(newmessage) - 1);
@@ -180,7 +180,7 @@ static void h_report_device(struct libxsvf_host* h, unsigned long idcode)
 
 static void h_report_status(struct libxsvf_host* h, const char* message)
 {
-	struct udata_s* u = h->user_data;
+	udata_t* u = (udata_t*)h->user_data;
 	char newmessage[33];
 	memset(newmessage, ' ', sizeof(newmessage) - 1);
 	newmessage[sizeof(newmessage) - 1] = 0;
@@ -203,7 +203,7 @@ static int realloc_maxsize[LIBXSVF_MEM_NUM];
 
 static void* h_realloc(struct libxsvf_host* h, void* ptr, int size, enum libxsvf_mem which)
 {
-	struct udata_s* u = h->user_data;
+	udata_t* u = (udata_t*)h->user_data;
 	if (size > realloc_maxsize[which]) { realloc_maxsize[which] = size; }
 	return realloc(ptr, size);
 }
@@ -214,7 +214,7 @@ static int tck_flushed = 1;
 static int tdi_tms_changed = 1;
 static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rmask, int sync)
 {
-	struct udata_s* u = h->user_data;
+	udata_t* u = (udata_t*)h->user_data;
 
 	u->clockcount++;
 	if (tdi >= 0) { u->bitcount_tdi++; }
@@ -224,27 +224,30 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 		return 1;
 	}
 	else {
-		int change_tdi_tms = tms != tms_old || (tdi >= 0 && tdi != tdi_old);
+		int change_tms = tms != tms_old;
+		int change_tdi = tdi >= 0 && tdi != tdi_old;
 
 		if (tck_queue > 0) {
-			SetGate();
 			flush_tck();
+			SetGate();
 			u->sendcount++;
-			if (change_tdi_tms) { Gate(); }
+			Gate();
 		}
 
-		if (tms != tms_old) {
-			SetGate();
+		if (change_tms) {
 			io_tms(tms);
+			SetGate();
 			tms_old = tms;
 		}
-		if (tdi >= 0) {
+		if (change_tdi) {
 			if (tdi != tdi_old) {
-				SetGate();
 				io_tdi(tdi);
+				SetGate();
 				tdi_old = tdi;
 			}
 		}
+
+		if (change_tms || change_tdi) { Gate(); }
 
 		if (!sync && tdo < 0) {
 			tck_queue++;
@@ -252,33 +255,17 @@ static int h_pulse_tck(struct libxsvf_host* h, int tms, int tdi, int tdo, int rm
 		}
 		else {
 			if (tdo >= 0) { u->bitcount_tdo++; }
-			if (change_tdi_tms) { Gate(); }
-			else { SetGate(); }
 			io_tck(1);
-			Gate();
+			SetGate();
 			u->sendcount++;
+			Gate();
 			int line_tdo = io_tdo();
 			return tdo < 0 || line_tdo == tdo ? line_tdo : -1;
 		}
 	}
 }
 
-static struct libxsvf_host h = {
-	.udelay = h_udelay,
-	.setup = h_setup,
-	.shutdown = h_shutdown,
-	.getbyte = h_getbyte,
-	.pulse_tck = h_pulse_tck,
-	.pulse_sck = NULL,
-	.set_trst = NULL,
-	.set_frequency = h_set_frequency,
-	.report_tapstate = h_report_tapstate,
-	.report_device = h_report_device,
-	.report_status = h_report_status,
-	.report_error = h_report_error,
-	.realloc = h_realloc,
-	.user_data = &u
-};
+static struct libxsvf_host h;
 
 static void copyleft()
 {
@@ -383,6 +370,22 @@ int main(int argc, char** argv)
 	int portnum;
 	int driver_installed = 0;
 
+	// Set callback pointers
+	h.udelay = h_udelay;
+	h.setup = h_setup;
+	h.shutdown = h_shutdown;
+	h.getbyte = h_getbyte;
+	h.pulse_tck = h_pulse_tck;
+	h.pulse_sck = NULL;
+	h.set_trst = NULL;
+	h.set_frequency = h_set_frequency;
+	h.report_tapstate = h_report_tapstate;
+	h.report_device = h_report_device;
+	h.report_status = h_report_status;
+	h.report_error = h_report_error;
+	h.realloc = h_realloc;
+	h.user_data = &u;
+
 	// Start driver check
 	driver_start_check();
 
@@ -467,7 +470,7 @@ int main(int argc, char** argv)
 	get_enter(); // Wait for enter key
 
 	// Enumerate COM ports
-	comsearch(portname);
+	comsearch();
 
 	// Print second instructions text from update file
 	while (1) {

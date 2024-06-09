@@ -67,18 +67,63 @@ void printinfo() {
 	fprintf(stderr, "Speed: %lf bits / sec.\n", (double)u.clockcount / elapsed);
 	fprintf(stderr, "\n");
 }
+
+#define HISTORY_LEN (64)
+int clockcount_history[HISTORY_LEN];
+LONGLONG ticks_history[HISTORY_LEN];
+int history_len_current = 0;
+void shift_history(int clockcount, LONGLONG ticks) {
+	for (int i = 0; i < HISTORY_LEN - 1; i++) {
+		clockcount_history[i] = clockcount_history[i + 1];
+		ticks_history[i] = ticks_history[i + 1];
+	}
+	history_len_current++;
+	clockcount_history[HISTORY_LEN - 1] = clockcount;
+	ticks_history[HISTORY_LEN - 1] = ticks;
+}
+float get_speed() {
+
+	if (history_len_current < 4) { return 0.0f; }
+	if (clockcount_history[HISTORY_LEN - 1] == clockcount_history[HISTORY_LEN - 2] &&
+		clockcount_history[HISTORY_LEN - 2] == clockcount_history[HISTORY_LEN - 3] &&
+		clockcount_history[HISTORY_LEN - 3] == clockcount_history[HISTORY_LEN - 4]) {
+		return 0.0f;
+	}
+
+	int start_index = 0;
+	if (history_len_current < HISTORY_LEN) {
+		start_index = HISTORY_LEN - history_len_current;
+	}
+
+	float speed_duration = (float)(ticks_history[HISTORY_LEN - 1] - ticks_history[start_index]) / ticks_per_ms / 1000.0f;
+	float speed = (float)(clockcount_history[HISTORY_LEN - 1] - clockcount_history[start_index]) / speed_duration;
+	return speed;
+}
+void printshortinfo_unconditional(LONGLONG ticks) {
+	LONGLONG end = ticks - start;
+	double elapsed = (float)end / ticks_per_ms / 1000.0f;
+	float percent = 100.0f * (float)u.clockcount / expected_bits;
+	if (percent > 100.0f) { percent = 100.0f; }
+	shift_history(u.clockcount, ticks);
+	if (enable_vt) {
+		fprintf(stderr,
+			"\033[1A\033[KUpdate in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
+			percent, u.clockcount, elapsed, get_speed());
+	}
+	else {
+		fprintf(stderr,
+			"Update in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
+			percent, u.clockcount, elapsed, get_speed());
+	}
+}
 void printshortinfo() {
 	if (cur_mode != LIBXSVF_MODE_SCAN) {
-		LONGLONG end = GetTicksNow() - start;
-		double elapsed = (double)end / ticks_per_ms / 1000.0f;
-		float percent = 100.0f * (float)u.clockcount / expected_bits;
-		if (percent > 100.0f) { percent = 100.0f; }
-		if (enable_vt) {
-			fprintf(stderr, "\033[1A\033[KUpdate in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
-				percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
-		} else {
-			fprintf(stderr, "Update in progress... %-4.1f%%      Bits: %d       Time: %.1f sec.      Speed: %.1f b/sec.\n",
-				percent, u.clockcount, elapsed, (double)u.clockcount / elapsed);
+		LONGLONG ticks = GetTicksNow();
+		LONGLONG since_last = ticks - ticks_history[HISTORY_LEN - 1];
+		float time_since_last = (float)since_last / ticks_per_ms / 1000.0f;
+		int clocks_since_last = u.clockcount - clockcount_history[HISTORY_LEN - 1];
+		if (time_since_last >= 0.09f || clocks_since_last >= 40) {
+			printshortinfo_unconditional(ticks);
 		}
 	}
 }
@@ -95,7 +140,7 @@ static int h_setup(struct libxsvf_host* h)
 	static char printed = 0;
 	udata_t* u = (udata_t*)h->user_data;
 	if (!printed) {
-		fprintf(stderr, "Opening JTAG connection...\n\n");
+		fprintf(stderr, "Opening JTAG connection...\n");
 		fflush(stderr);
 		printed = 1;
 	}
@@ -107,10 +152,6 @@ static int h_setup(struct libxsvf_host* h)
 static int h_shutdown(struct libxsvf_host* h)
 {
 	struct udata_s* u = (struct udata_s*)h->user_data;
-	if (cur_mode != LIBXSVF_MODE_SCAN) {
-		fprintf(stderr, "Closing JTAG connection...\n\n");
-		fflush(stderr);
-	}
 	flush_tck();
 	io_shutdown();
 	return 0;
@@ -612,7 +653,9 @@ int main(int argc, char** argv)
 	// Play update (X)SVF
 	fputc('\n', stderr);
 	cur_mode = mode;
-	if (libxsvf_play(&h, mode) < 0) {
+	int play_result = libxsvf_play(&h, mode);
+	printshortinfo_unconditional(GetTicksNow());
+	if (play_result < 0) {
 		fprintf(stderr, "Error! Failed to play (X)SVF.\n");
 		printinfo();
 		fprintf(stderr, "-----------------\n");
